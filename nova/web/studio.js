@@ -7,7 +7,7 @@ const libraryRows = [];
 const fileFields = ["ref_a", "ref_b", "region_a", "region_b", "source", "mask", "pose"];
 const numberFields = ["strength_a", "strength_b", "lora_strength_a", "lora_strength_b",
   "width", "height", "steps", "cfg", "seed", "batch", "pose_strength", "denoise"];
-const textFields = ["prompt", "negative", "layout", "mode", "checkpoint", "adapter",
+const textFields = ["prompt", "negative", "anatomy", "layout", "mode", "checkpoint", "adapter",
   "vision", "controlnet", "lora_a", "lora_b"];
 const modelFields = ["checkpoint", "adapter", "vision", "controlnet", "lora_a", "lora_b"];
 const optional = new Set(["controlnet", "lora_a", "lora_b"]);
@@ -226,7 +226,7 @@ function settings() {
 function applySettings(saved) {
   for (const name of [...textFields, ...numberFields]) {
     if (modelFields.includes(name)) selectValue(field(name), saved[name]);
-    else field(name).value = saved[name] ?? "";
+    else field(name).value = saved[name] ?? (name === "anatomy" ? "high" : "");
   }
   for (const name of fileFields) {
     assets.get(name).set(saved[name] ?? null);
@@ -237,6 +237,7 @@ function applySettings(saved) {
   }
   for (const name of ["strength_a", "strength_b"]) field(name).dispatchEvent(new Event("input"));
   updateMode();
+  field("prompt").dispatchEvent(new Event("input"));
   field("layout").dispatchEvent(new Event("input"));
   resetAttestation();
   form.scrollIntoView({block: "start"});
@@ -618,6 +619,7 @@ document.querySelector("#apply-story").addEventListener("click", () => {
     return;
   }
   field("prompt").value = prompt;
+  field("prompt").dispatchEvent(new Event("input"));
   resetAttestation();
   storyMessage("Prompt applied. You can edit it in the Prompt field before generating.");
 });
@@ -799,3 +801,37 @@ for (const slot of ["a", "b"]) {
     if (!storyResults.hidden) refreshStoryLoras();
   });
 }
+
+const anatomyPreview = document.querySelector("#combined-negative-panel");
+const anatomyButton = document.querySelector("#preview-negative");
+const anatomyStatus = document.querySelector("#anatomy-status");
+let anatomyRevision = 0;
+
+for (const name of ["prompt", "negative", "anatomy"]) {
+  field(name).addEventListener("input", () => {
+    anatomyRevision += 1;
+    anatomyPreview.hidden = true;
+    anatomyStatus.hidden = true;
+  });
+}
+
+anatomyButton.addEventListener("click", async () => {
+  const revision = anatomyRevision;
+  anatomyButton.disabled = true;
+  anatomyStatus.hidden = true;
+  try {
+    const {negative} = await api("/negative-prompt", {method: "POST", body: {
+      prompt: field("prompt").value, negative: field("negative").value, anatomy: field("anatomy").value,
+    }});
+    if (revision !== anatomyRevision) return;
+    document.querySelector("#combined-negative").value = negative;
+    anatomyPreview.hidden = false;
+  } catch (error) {
+    if (revision === anatomyRevision) {
+      anatomyStatus.textContent = error.message;
+      anatomyStatus.hidden = false;
+    }
+  } finally {
+    anatomyButton.disabled = false;
+  }
+});

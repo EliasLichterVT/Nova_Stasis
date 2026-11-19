@@ -95,6 +95,12 @@ Nova records published Civitai trigger words when you import a LoRA. For an exis
 
 Story translation suggests installed LoRAs by matching the selected scene prompt against saved keywords, trigger words, and model names. LoRAs you already selected appear first. After editing the suggested prompt, click **Match prompt** to update the suggestions. Choose **Use on A** or **Use on B** to select the LoRA and add missing trigger words to the prompt. Story keywords help find the model and stay out of the generation prompt. Check the displayed Civitai base model against your checkpoint when that metadata is available. LoRA effects still apply to the full image, while the two reference adapters provide the regional conditioning.
 
+## Human anatomy negative prompt
+
+The **Human anatomy** setting in **Scene** defaults to **High priority**. Nova reads the current positive prompt, including any prompt applied from your story, and adds weighted exclusions for common anatomy artifacts. Mentions of hand actions, close-ups, or full-body and foot details add more targeted terms. Your custom negative prompt remains included, and an exact duplicate you wrote takes precedence over the automatic term.
+
+Select **Preview combined negative prompt** to see the text ComfyUI will receive. Choose **Off** to use only your custom negative prompt. The setting is saved with generation settings and history. It guides the sampler during generation. Results still depend on the model, pose, references and seed, and Nova does not validate the anatomy of the finished image.
+
 ## Privacy and safeguards
 
 - Both services bind to loopback in the documented setup. Nova has no accounts, telemetry, remote inference or public hosting mode. Its API checks the request host and protects write requests against cross-origin browser access. Use a trusted single-user machine or OS account.

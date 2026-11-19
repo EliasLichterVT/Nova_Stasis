@@ -79,6 +79,21 @@
               <p id="story-status" class="muted" role="status" hidden></p>
             </details>
             <label>Negative prompt<textarea name="negative" maxlength="2000" rows="2" placeholder="duplicate subjects, blurry faces"></textarea></label>
+            <div class="anatomy-controls">
+              <label>Human anatomy
+                <select name="anatomy">
+                  <option value="high">High priority</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <button id="preview-negative" type="button">Preview combined negative prompt</button>
+            </div>
+            <div id="combined-negative-panel" hidden>
+              <label>Combined negative prompt
+                <textarea id="combined-negative" rows="4" readonly></textarea>
+              </label>
+            </div>
+            <p id="anatomy-status" class="muted" role="status" hidden></p>
             <label>Mode<select name="mode"><option value="text">Text to image</option><option value="image">Image to image</option><option value="inpaint">Inpainting</option></select></label>
             <div class="asset-grid" id="scene-assets"></div>
             <label id="denoise" hidden>Denoise<input name="denoise" type="number" min=".01" max="1" step=".01" value=".65"></label>

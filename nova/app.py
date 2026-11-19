@@ -18,6 +18,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .anatomy import AnatomyPrompt, effective_negative
 from .civitai import Importer, router as import_router
 from .comfy import Comfy, ComfyError
 from .lora import KeywordEdit, SuggestionRequest, catalog_entry, clean_terms, suggest_loras
@@ -182,6 +183,11 @@ def check_prompt(prompt):
     normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
     if RESTRICTED.search(normalized):
         raise HTTPException(422, "Use non-explicit scenes with authorized adult subjects.")
+
+
+@app.post("/api/negative-prompt")
+def negative_prompt(request: AnatomyPrompt):
+    return {"negative": effective_negative(request.prompt, request.negative, request.anatomy)}
 
 
 @app.post("/api/story-prompts")

@@ -143,3 +143,7 @@ summary { color: var(--muted); padding: 9px 0; font-size: 12px; }
 #lora-suggestion-list button { margin-right: 5px; }
 #lora-keyword-status { margin-top: 8px; }
 #lora-keyword-status:empty, #lora-suggestion-status:empty { display: none; }
+
+.anatomy-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-bottom: 10px; }
+.anatomy-controls label { flex: 1; min-width: 110px; margin: 0; }
+#anatomy-status { margin: 0 0 10px; font-size: 13px; }

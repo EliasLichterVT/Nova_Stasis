@@ -6,6 +6,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+from .anatomy import AnatomyMode, effective_negative
+
+
 MAX_SEED = 2**53 - 1
 
 
@@ -14,6 +17,7 @@ class Settings(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=3000)
     negative: str = Field(default="", max_length=2000)
+    anatomy: AnatomyMode = "high"
     checkpoint: str = Field(min_length=1, max_length=300)
     adapter: str = Field(min_length=1, max_length=300)
     vision: str = Field(min_length=1, max_length=300)
@@ -96,7 +100,9 @@ def build_workflow(settings: Settings, images: dict[str, str], seed: int, job_id
         )
 
     positive = add("CLIPTextEncode", clip=clip, text=settings.prompt)
-    negative = add("CLIPTextEncode", clip=clip, text=settings.negative)
+    negative = add("CLIPTextEncode", clip=clip, text=effective_negative(
+        settings.prompt, settings.negative, settings.anatomy,
+    ))
     if settings.pose:
         control = add("ControlNetLoader", control_net_name=settings.controlnet)
         positive = add("ControlNetApplyAdvanced", positive=positive, negative=negative,
