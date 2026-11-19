@@ -1,0 +1,390 @@
+const form = document.querySelector("#studio");
+const field = name => form.elements.namedItem(name);
+const assets = new Map();
+const jobs = new Map();
+const lists = {profile: [], preset: []};
+const libraryRows = [];
+const fileFields = ["ref_a", "ref_b", "region_a", "region_b", "source", "mask", "pose"];
+const numberFields = ["strength_a", "strength_b", "lora_strength_a", "lora_strength_b",
+  "width", "height", "steps", "cfg", "seed", "batch", "pose_strength", "denoise"];
+const textFields = ["prompt", "negative", "layout", "mode", "checkpoint", "adapter",
+  "vision", "controlnet", "lora_a", "lora_b"];
+const modelFields = ["checkpoint", "adapter", "vision", "controlnet", "lora_a", "lora_b"];
+const optional = new Set(["controlnet", "lora_a", "lora_b"]);
+const uploaderTemplate = document.querySelector("#asset-template");
+const preview = document.querySelector("#preview");
+const message = document.querySelector("#message");
+const submit = document.querySelector("#generate");
+const history = document.querySelector("#history");
+let uploadsInProgress = 0;
+let submitting = false;
+let selectedJob = null;
+
+async function api(path, {method = "GET", body} = {}) {
+  const headers = {"X-Nova-Request": "1"};
+  if (body && !(body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(body);
+  }
+  const response = await fetch(`/api${path}`, {method, headers, body});
+  if (response.status === 204) return null;
+  const result = await response.json();
+  if (!response.ok) {
+    const detail = Array.isArray(result.detail) ? result.detail.map(error =>
+      `${error.loc?.at(-1) ?? "Settings"} — ${error.msg}`).join(". ") : result.detail;
+    throw new Error(detail ?? "The request failed.");
+  }
+  return result;
+}
+
+function notify(text, isError = false) {
+  message.textContent = text;
+  message.hidden = !text;
+  message.classList.toggle("error", isError);
+}
+
+function resetAttestation() {
+  field("authorized").checked = false;
+}
+
+function syncSubmit() {
+  submit.disabled = submitting || uploadsInProgress > 0;
+}
+
+function asset(name, label) {
+  const element = uploaderTemplate.content.firstElementChild.cloneNode(true);
+  const input = element.querySelector("input");
+  const image = element.querySelector("img");
+  const copy = element.querySelector(".drop-copy");
+  const remove = element.querySelector("button");
+  copy.querySelector("b").textContent = label;
+  input.setAttribute("aria-label", label);
+  image.alt = label;
+  let current = null;
+
+  function set(id) {
+    current = id;
+    image.hidden = !id;
+    copy.hidden = Boolean(id);
+    remove.hidden = !id;
+    if (id) image.src = `/api/uploads/${id}`;
+    else image.removeAttribute("src");
+    resetAttestation();
+  }
+
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const body = new FormData();
+    body.append("image", file);
+    input.disabled = remove.disabled = true;
+    uploadsInProgress += 1;
+    syncSubmit();
+    try {
+      const result = await api("/uploads", {method: "POST", body});
+      set(result.id);
+      notify("");
+    } catch (error) {
+      notify(error.message, true);
+    } finally {
+      input.value = "";
+      input.disabled = remove.disabled = false;
+      uploadsInProgress -= 1;
+      syncSubmit();
+    }
+  });
+  remove.addEventListener("click", () => set(null));
+  assets.set(name, {element, set, get id() { return current; }});
+  return element;
+}
+
+function selectValue(select, value) {
+  if (value && !Array.from(select.options).some(option => option.value === value)) {
+    select.add(new Option(`${value} (unavailable)`, value));
+  }
+  select.value = value || "";
+}
+
+function buildLibrary(target, kind, read, apply) {
+  target.innerHTML = `
+    <div class="library-row"><select aria-label="Saved ${kind}"></select>
+      <button type="button" data-action="load">Load</button>
+      <button type="button" data-action="delete" aria-label="Delete saved ${kind}">×</button></div>
+    <div class="library-row"><label>${kind === "profile" ? "Profile" : "Preset"} name
+      <input type="text" maxlength="80"></label><button type="button" data-action="save">Save</button></div>`;
+  const select = target.querySelector("select");
+  const input = target.querySelector("input");
+  libraryRows.push({kind, select});
+  target.addEventListener("click", async event => {
+    const action = event.target.dataset.action;
+    if (!action) return;
+    const item = lists[kind].find(entry => entry.id === select.value);
+    try {
+      if (action === "load" && item) {
+        apply(item);
+        notify(`Loaded ${item.name}.`);
+      }
+      if (action === "save") {
+        if (!input.value.trim()) throw new Error(`Enter a ${kind} name.`);
+        const record = await api(`/library/${kind}`, {
+          method: "POST", body: {name: input.value.trim(), ...read()},
+        });
+        await loadLibrary(kind);
+        select.value = record.id;
+        input.value = "";
+        notify(`Saved ${record.name}.`);
+      }
+      if (action === "delete" && item) {
+        await api(`/library/${kind}/${item.id}`, {method: "DELETE"});
+        await loadLibrary(kind);
+        notify(`Deleted ${item.name}.`);
+      }
+    } catch (error) {
+      notify(error.message, true);
+    }
+  });
+}
+
+async function loadLibrary(kind) {
+  lists[kind] = await api(`/library/${kind}`);
+  for (const row of libraryRows.filter(row => row.kind === kind)) {
+    const previous = row.select.value;
+    row.select.replaceChildren(new Option(`Select ${kind}`, ""), ...lists[kind].map(
+      item => new Option(item.name, item.id),
+    ));
+    row.select.value = lists[kind].some(item => item.id === previous) ? previous : "";
+  }
+}
+
+function buildCharacter(slot) {
+  const card = document.createElement("article");
+  card.className = "character";
+  card.innerHTML = `
+    <h3>Character <span>${slot.toUpperCase()}</span></h3>
+    <div class="reference"></div>
+    <label>Reference strength <output>0.75</output><input name="strength_${slot}" type="range" min=".05" max="1.5" step=".05" value=".75"></label>
+    <details><summary>Mask &amp; LoRA</summary><div class="mask"></div>
+      <label>LoRA<select name="lora_${slot}"></select></label>
+      <label>LoRA strength<input name="lora_strength_${slot}" type="number" min="0" max="1.5" step=".05" value=".65" required></label>
+    </details>
+    <details><summary>Character profiles</summary><div class="library"></div></details>`;
+  document.querySelector("#characters").append(card);
+  card.querySelector(".reference").append(asset(`ref_${slot}`, `Upload reference ${slot.toUpperCase()}`));
+  card.querySelector(".mask").append(asset(`region_${slot}`, `Attention mask ${slot.toUpperCase()}`));
+  const strength = field(`strength_${slot}`);
+  strength.addEventListener("input", () => {
+    card.querySelector("output").value = Number(strength.value).toFixed(2);
+  });
+  buildLibrary(card.querySelector(".library"), "profile", () => {
+    const reference = assets.get(`ref_${slot}`).id;
+    if (!reference) throw new Error("Upload a reference before saving a profile.");
+    return {reference, strength: Number(strength.value), lora: field(`lora_${slot}`).value || null,
+      lora_strength: Number(field(`lora_strength_${slot}`).value)};
+  }, item => {
+    assets.get(`ref_${slot}`).set(item.reference);
+    strength.value = item.strength;
+    strength.dispatchEvent(new Event("input"));
+    selectValue(field(`lora_${slot}`), item.lora);
+    field(`lora_strength_${slot}`).value = item.lora_strength;
+  });
+}
+buildCharacter("a");
+buildCharacter("b");
+
+document.querySelector("#scene-assets").append(asset("source", "Source image"), asset("mask", "White-on-black edit mask"));
+document.querySelector("#pose-asset").append(asset("pose", "OpenPose map"));
+
+function updateMode() {
+  const mode = field("mode").value;
+  assets.get("source").element.hidden = mode === "text";
+  assets.get("mask").element.hidden = mode !== "inpaint";
+  document.querySelector("#denoise").hidden = mode === "text";
+}
+field("mode").addEventListener("change", updateMode);
+updateMode();
+
+function settings() {
+  for (const name of [...textFields, ...numberFields]) {
+    if (!field(name).checkValidity()) throw new Error(`Check the ${name.replaceAll("_", " ")} setting.`);
+  }
+  const result = {};
+  for (const name of textFields) result[name] = optional.has(name) ? field(name).value || null : field(name).value;
+  for (const name of numberFields) result[name] = field(name).value === "" ? null : Number(field(name).value);
+  for (const name of fileFields) result[name] = assets.get(name).id;
+  if (!result.ref_a || !result.ref_b) throw new Error("Upload references for Character A and Character B.");
+  if (result.mode !== "text" && !result.source) throw new Error("Upload a source image for this mode.");
+  if (result.mode === "inpaint" && !result.mask) throw new Error("Upload a white-on-black edit mask.");
+  if (result.mode === "text") result.source = null;
+  if (result.mode !== "inpaint") result.mask = null;
+  if (Boolean(result.pose) !== Boolean(result.controlnet)) {
+    throw new Error("Select both an OpenPose map and its ControlNet model.");
+  }
+  return result;
+}
+
+function applySettings(saved) {
+  for (const name of [...textFields, ...numberFields]) {
+    if (modelFields.includes(name)) selectValue(field(name), saved[name]);
+    else field(name).value = saved[name] ?? "";
+  }
+  for (const name of fileFields) {
+    assets.get(name).set(saved[name] ?? null);
+    if (saved[name]) {
+      const details = assets.get(name).element.closest("details");
+      if (details) details.open = true;
+    }
+  }
+  for (const name of ["strength_a", "strength_b"]) field(name).dispatchEvent(new Event("input"));
+  updateMode();
+  resetAttestation();
+  form.scrollIntoView({block: "start"});
+}
+
+buildLibrary(document.querySelector("#presets"), "preset", () => ({settings: settings()}),
+  item => applySettings(item.settings));
+
+async function models() {
+  const label = document.querySelector("#connection");
+  const refresh = document.querySelector("#refresh-models");
+  refresh.disabled = true;
+  label.textContent = "Checking ComfyUI…";
+  try {
+    const result = await api("/models");
+    for (const name of modelFields) {
+      const select = field(name);
+      const available = result[name === "lora_b" ? "lora_a" : name] ?? [];
+      const prior = select.value;
+      select.replaceChildren(new Option(optional.has(name) ? "None" : "Select model", ""),
+        ...available.map(model => new Option(model, model)));
+      selectValue(select, prior || (!optional.has(name) && available.length === 1 ? available[0] : ""));
+    }
+    label.textContent = ["checkpoint", "adapter", "vision"].every(name => result[name]?.length)
+      ? "ComfyUI connected" : "ComfyUI · models missing";
+  } catch {
+    label.textContent = "ComfyUI offline";
+  } finally {
+    refresh.disabled = false;
+  }
+}
+document.querySelector("#refresh-models").addEventListener("click", models);
+
+function showImage(job, index) {
+  selectedJob = job.id;
+  const image = new Image();
+  image.alt = `Generated scene, image ${index + 1}`;
+  image.src = `/api/generations/${job.id}/images/${index}`;
+  image.addEventListener("error", () => {
+    if (preview.contains(image)) notify("The image is unavailable. Check ComfyUI and its output folder.", true);
+  });
+  preview.replaceChildren(image);
+}
+
+function renderHistory() {
+  const sorted = [...jobs.values()].sort((a, b) => b.created.localeCompare(a.created));
+  history.replaceChildren();
+  if (!sorted.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No generations yet.";
+    history.append(empty);
+  }
+  for (const job of sorted) {
+    const article = document.createElement("article");
+    const prompt = document.createElement("p");
+    prompt.textContent = job.settings.prompt;
+    const status = document.createElement("p");
+    status.className = "muted";
+    status.textContent = `${job.status} · Seed ${job.seed} · ${new Date(job.created).toLocaleString()}`;
+    article.append(prompt, status);
+    if (job.error) {
+      const error = document.createElement("p");
+      error.textContent = job.error;
+      article.append(error);
+    }
+    if (job.images.length) {
+      const gallery = document.createElement("div");
+      gallery.className = "gallery";
+      job.images.forEach((item, index) => {
+        const url = `/api/generations/${job.id}/images/${index}`;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.addEventListener("click", () => showImage(job, index));
+        const image = new Image();
+        image.src = url;
+        image.loading = "lazy";
+        image.alt = `Preview image ${index + 1}`;
+        button.append(image);
+        const download = document.createElement("a");
+        download.href = url;
+        download.download = item.filename;
+        download.textContent = `Save ${index + 1}`;
+        gallery.append(button, download);
+      });
+      article.append(gallery);
+    }
+    const reuse = document.createElement("button");
+    reuse.type = "button";
+    reuse.textContent = "Reuse settings";
+    reuse.addEventListener("click", () => applySettings({...job.settings, seed: job.seed}));
+    article.append(reuse);
+    history.append(article);
+  }
+  if (!selectedJob) {
+    const latest = sorted.find(job => job.images.length);
+    if (latest) showImage(latest, 0);
+  }
+}
+
+async function poll() {
+  const pending = [...jobs.values()].filter(job => job.status === "queued");
+  let updated = false;
+  await Promise.all(pending.map(async job => {
+    try {
+      const latest = await api(`/generations/${job.id}`);
+      if (latest.status === "queued") return;
+      jobs.set(latest.id, latest);
+      updated = true;
+      if (latest.status === "complete" && latest.id === selectedJob) {
+        showImage(latest, 0);
+        notify("Scene complete.");
+      }
+      if (latest.status === "failed" && latest.id === selectedJob) notify(latest.error, true);
+    } catch (error) {
+      if (job.id === selectedJob) notify(error.message, true);
+    }
+  }));
+  if (updated) renderHistory();
+  setTimeout(poll, 3000);
+}
+
+form.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (submitting || uploadsInProgress) return;
+  submitting = true;
+  syncSubmit();
+  try {
+    if (!event.submitter || event.submitter !== submit) return;
+    const body = {...settings(), authorized: field("authorized").checked};
+    notify("Submitting to ComfyUI…");
+    const job = await api("/generations", {method: "POST", body});
+    selectedJob = job.id;
+    jobs.set(job.id, job);
+    resetAttestation();
+    notify(`Scene queued · Seed ${job.seed}`);
+    renderHistory();
+  } catch (error) {
+    notify(error.message, true);
+  } finally {
+    submitting = false;
+    syncSubmit();
+  }
+});
+
+models();
+for (const kind of Object.keys(lists)) loadLibrary(kind).catch(error => notify(error.message, true));
+api("/generations").then(records => {
+  for (const record of records) {
+    if (!jobs.has(record.id)) jobs.set(record.id, record);
+  }
+  renderHistory();
+}).catch(error => notify(error.message, true)).finally(poll);

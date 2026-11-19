@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova Stasis · Generation Studio</title>
+  <link rel="stylesheet" href="/studio/style.css">
+  <script type="module" src="/studio/studio.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">✳</span> Nova Stasis</div>
+    <div class="connection"><span id="connection" role="status">Checking ComfyUI…</span><button type="button" id="refresh-models">Refresh</button></div>
+  </header>
+  <main>
+    <div class="title">
+      <h1>Generation studio</h1>
+      <p>Build a scene around two character references.</p>
+    </div>
+    <form id="studio">
+      <div class="workspace">
+        <div class="controls">
+          <section class="panel">
+            <div class="section-title"><h2>Characters</h2><label>Layout <select name="layout"><option value="horizontal">A left, B right</option><option value="vertical">A top, B bottom</option></select></label></div>
+            <div id="characters" class="characters"></div>
+          </section>
+          <section class="panel">
+            <h2>Scene</h2>
+            <label>Prompt<textarea name="prompt" required maxlength="3000" rows="4" placeholder="A on the left in a saffron coat, B on the right in blue armor, talking in a lantern-lit courtyard"></textarea></label>
+            <label>Negative prompt<textarea name="negative" maxlength="2000" rows="2" placeholder="duplicate subjects, blurry faces"></textarea></label>
+            <label>Mode<select name="mode"><option value="text">Text to image</option><option value="image">Image to image</option><option value="inpaint">Inpainting</option></select></label>
+            <div class="asset-grid" id="scene-assets"></div>
+            <label id="denoise" hidden>Denoise<input name="denoise" type="number" min=".01" max="1" step=".01" value=".65"></label>
+          </section>
+          <section class="panel">
+            <h2>Models &amp; sampling</h2>
+            <div class="field-grid">
+              <label class="wide">Stable Diffusion checkpoint<select name="checkpoint" required></select></label>
+              <label>IP-Adapter<select name="adapter" required></select></label>
+              <label>CLIP Vision<select name="vision" required></select></label>
+              <label>Width<input name="width" type="number" min="256" max="1536" step="64" value="1024" required></label>
+              <label>Height<input name="height" type="number" min="256" max="1536" step="64" value="768" required></label>
+              <label>Steps<input name="steps" type="number" min="1" max="80" value="28" required></label>
+              <label>CFG<input name="cfg" type="number" min="1" max="20" step=".1" value="6" required></label>
+              <label>Seed<input name="seed" type="number" min="0" max="9007199254740991" placeholder="Random"></label>
+              <label>Batch size<input name="batch" type="number" min="1" max="4" value="1" required></label>
+            </div>
+            <details>
+              <summary>Pose control</summary>
+              <div id="pose-asset"></div>
+              <div class="field-grid">
+                <label>OpenPose ControlNet<select name="controlnet"></select></label>
+                <label>Pose strength<input name="pose_strength" type="number" min=".05" max="2" step=".05" value=".75" required></label>
+              </div>
+            </details>
+          </section>
+          <section class="panel">
+            <h2>Saved settings</h2>
+            <div class="library" id="presets"></div>
+          </section>
+        </div>
+        <aside class="output">
+          <section class="panel preview-panel">
+            <div class="section-title"><h2>Preview</h2><span class="private"><i></i> Local workspace</span></div>
+            <div id="preview" class="preview">
+              <div class="empty"><span class="viewfinder" aria-hidden="true"><b>+</b></span><p>Your scene will appear here</p></div>
+            </div>
+            <label class="attestation"><input name="authorized" type="checkbox" required><span>I have permission to use these references. All depicted people are adults, and the scene is non-explicit.</span></label>
+            <button id="generate" class="primary" type="submit">Generate scene <span aria-hidden="true">↗</span></button>
+            <p id="message" role="status" hidden></p>
+          </section>
+          <section class="panel">
+            <h2>Generation history</h2>
+            <div id="history" class="history"><p class="muted">No generations yet.</p></div>
+          </section>
+        </aside>
+      </div>
+    </form>
+  </main>
+  <template id="asset-template">
+    <div class="asset">
+      <label class="drop">
+        <input type="file" accept="image/png,image/jpeg,image/webp">
+        <img alt="" hidden>
+        <span class="drop-copy"><span aria-hidden="true">+</span><b></b><small>PNG, JPEG, WebP</small></span>
+      </label>
+      <button class="remove" type="button" hidden>Remove image</button>
+    </div>
+  </template>
+</body>
+</html>
