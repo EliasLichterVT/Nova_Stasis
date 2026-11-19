@@ -83,6 +83,12 @@ The importer runs one download at a time and keeps it running if you close or re
 6. Confirm that you have permission to use the references, everyone depicted is an adult, and the scene is non-explicit. Select **Generate scene**. The dashboard polls ComfyUI and shows completed images in **Preview** and **Generation history**. You can download each result or reuse its settings and seed.
 7. Save reference images and strengths through **Character profiles**, including an optional LoRA selection. **Saved settings** stores the full prompt and generation settings, including local references. Each generation requires a fresh attestation.
 
+## Turn a story into a prompt
+
+In **Scene**, open **Turn a story into a prompt** and type or paste up to 12,000 characters. Enter the story names for References A and B if you want the prompt to name them. Select **Translate story**, choose a scene, and edit its suggested prompt if needed. Select **Use prompt**, then run **Generate scene** with your usual reference images and settings.
+
+The translator works locally without an API key or additional model. Start a new paragraph or insert a line with three asterisks between scenes. Nova processes up to 12 scene suggestions, extracting short passages and prioritizing visible actions, settings and lighting with English-language rules. It omits quoted dialogue and places both characters according to the selected layout. Recheck the suggested prompt for details the extractor may miss. To generate a different moment, select another scene and apply its prompt.
+
 ## Privacy and safeguards
 
 - Both services bind to loopback in the documented setup. Nova has no accounts, telemetry, remote inference or public hosting mode. Its API checks the request host and protects write requests against cross-origin browser access. Use a trusted single-user machine or OS account.

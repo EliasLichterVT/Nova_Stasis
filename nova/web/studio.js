@@ -237,6 +237,7 @@ function applySettings(saved) {
   }
   for (const name of ["strength_a", "strength_b"]) field(name).dispatchEvent(new Event("input"));
   updateMode();
+  field("layout").dispatchEvent(new Event("input"));
   resetAttestation();
   form.scrollIntoView({block: "start"});
 }
@@ -543,3 +544,74 @@ api("/imports").then(result => {
     if (importBusy) pollImport();
   }
 }).catch(error => { importStatus.textContent = error.message; });
+
+const storyText = document.querySelector("#story-text");
+const storyNameA = document.querySelector("#story-name-a");
+const storyNameB = document.querySelector("#story-name-b");
+const translateButton = document.querySelector("#translate-story");
+const storyResults = document.querySelector("#story-results");
+const storySelect = document.querySelector("#story-scenes");
+const storyPreview = document.querySelector("#story-preview");
+const storyStatus = document.querySelector("#story-status");
+let storyPrompts = [];
+let storyRevision = 0;
+
+function storyMessage(text) {
+  storyStatus.textContent = text;
+  storyStatus.hidden = !text;
+}
+
+for (const input of [storyText, storyNameA, storyNameB, field("layout")]) {
+  input.addEventListener("input", () => {
+    storyRevision += 1;
+    if (storyResults.hidden) return;
+    storyResults.hidden = true;
+    storyMessage("Translate the revised story to update its prompts.");
+  });
+}
+storySelect.addEventListener("change", () => {
+  storyPreview.value = storyPrompts[Number(storySelect.value)].prompt;
+});
+storyPreview.addEventListener("input", () => {
+  storyPrompts[Number(storySelect.value)].prompt = storyPreview.value;
+});
+translateButton.addEventListener("click", async () => {
+  if (!storyText.value.trim()) {
+    storyMessage("Type or paste a story first.");
+    storyText.focus();
+    return;
+  }
+  const revision = storyRevision;
+  translateButton.disabled = true;
+  storyResults.hidden = true;
+  storyMessage("Preparing scene prompts…");
+  try {
+    const result = await api("/story-prompts", {method: "POST", body: {
+      story: storyText.value, name_a: storyNameA.value, name_b: storyNameB.value, layout: field("layout").value,
+    }});
+    if (storyRevision !== revision) {
+      storyMessage("Translate the revised story to update its prompts.");
+      return;
+    }
+    storyPrompts = result.scenes;
+    storySelect.replaceChildren(...storyPrompts.map((scene, index) => new Option(scene.title, index)));
+    storyPreview.value = storyPrompts[0].prompt;
+    storyResults.hidden = false;
+    storyMessage(result.truncated ? "Showing the first 12 scenes. Translate the rest in a separate pass." : "");
+  } catch (error) {
+    storyMessage(error.message);
+  } finally {
+    translateButton.disabled = false;
+  }
+});
+document.querySelector("#apply-story").addEventListener("click", () => {
+  const prompt = storyPreview.value.trim();
+  if (!prompt) {
+    storyMessage("Enter a scene prompt first.");
+    storyPreview.focus();
+    return;
+  }
+  field("prompt").value = prompt;
+  resetAttestation();
+  storyMessage("Prompt applied. You can edit it in the Prompt field before generating.");
+});

@@ -128,3 +128,7 @@ summary { color: var(--muted); padding: 9px 0; font-size: 12px; }
 #import-progress { width: 100%; margin-top: 12px; accent-color: var(--accent); }
 #import-status { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; margin: 8px 0 0; }
 #import-status:empty { display: none; }
+
+#story-tool { margin: 0 0 12px; }
+#story-results { margin-top: 12px; }
+#story-status { margin-top: 8px; font-size: 13px; }

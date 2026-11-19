@@ -21,6 +21,7 @@ from .civitai import Importer, router as import_router
 from .comfy import Comfy, ComfyError
 from .media import MAX_UPLOAD, image_path, png_bytes, read_upload, region_mask
 from .storage import Storage
+from .story import StoryRequest, translate_story
 from .workflow import ASSET_CHOICES, MAX_SEED, Settings, build_workflow
 
 
@@ -157,6 +158,14 @@ def check_prompt(prompt):
     normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
     if RESTRICTED.search(normalized):
         raise HTTPException(422, "Use non-explicit scenes with authorized adult subjects.")
+
+
+@app.post("/api/story-prompts")
+def story_prompts(request: StoryRequest):
+    result = translate_story(request)
+    if not result["scenes"]:
+        raise HTTPException(422, "Add narration that describes what the characters are doing or where they are.")
+    return result
 
 
 @app.post("/api/generations", status_code=202)

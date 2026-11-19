@@ -52,6 +52,23 @@
           <section class="panel">
             <h2>Scene</h2>
             <label>Prompt<textarea name="prompt" required maxlength="3000" rows="4" placeholder="A on the left in a saffron coat, B on the right in blue armor, talking in a lantern-lit courtyard"></textarea></label>
+            <details id="story-tool">
+              <summary>Turn a story into a prompt</summary>
+              <label>Story
+                <textarea id="story-text" maxlength="12000" rows="5" placeholder="Mara raised a lantern as Ivo stepped onto the bridge. Mist curled above the river."></textarea>
+              </label>
+              <div class="field-grid">
+                <label>Character A name <input id="story-name-a" type="text" maxlength="60" placeholder="Optional"></label>
+                <label>Character B name <input id="story-name-b" type="text" maxlength="60" placeholder="Optional"></label>
+              </div>
+              <button id="translate-story" type="button">Translate story</button>
+              <div id="story-results" hidden>
+                <label>Story scene <select id="story-scenes"></select></label>
+                <label>Suggested prompt <textarea id="story-preview" maxlength="3000" rows="4"></textarea></label>
+                <button id="apply-story" type="button">Use prompt</button>
+              </div>
+              <p id="story-status" class="muted" role="status" hidden></p>
+            </details>
             <label>Negative prompt<textarea name="negative" maxlength="2000" rows="2" placeholder="duplicate subjects, blurry faces"></textarea></label>
             <label>Mode<select name="mode"><option value="text">Text to image</option><option value="image">Image to image</option><option value="inpaint">Inpainting</option></select></label>
             <div class="asset-grid" id="scene-assets"></div>
