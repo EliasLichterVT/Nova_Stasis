@@ -141,7 +141,10 @@ async def model_choices():
         return spec[0] if spec and isinstance(spec[0], list) else []
 
     choices = await asyncio.gather(*(node_choices(*entry) for entry in ASSET_CHOICES.values()))
-    return dict(zip(ASSET_CHOICES, choices))
+    result = dict(zip(ASSET_CHOICES, choices))
+    if os.environ.get("NOVA_STARTER_MODELS") == "1":
+        result["starter_checkpoint"] = "v1-5-pruned-emaonly.safetensors"
+    return result
 
 
 def check_prompt(prompt):

@@ -19,6 +19,7 @@ const history = document.querySelector("#history");
 let uploadsInProgress = 0;
 let submitting = false;
 let selectedJob = null;
+let starterDefaultsApplied = false;
 
 async function api(path, {method = "GET", body} = {}) {
   const headers = {"X-Nova-Request": "1"};
@@ -257,6 +258,13 @@ async function models() {
       select.replaceChildren(new Option(optional.has(name) ? "None" : "Select model", ""),
         ...available.map(model => new Option(model, model)));
       selectValue(select, prior || (!optional.has(name) && available.length === 1 ? available[0] : ""));
+    }
+    if (!starterDefaultsApplied && result.starter_checkpoint
+        && field("checkpoint").value === result.starter_checkpoint) {
+      for (const name of ["width", "height"]) {
+        if (field(name).value === field(name).defaultValue) field(name).value = "512";
+      }
+      starterDefaultsApplied = true;
     }
     label.textContent = ["checkpoint", "adapter", "vision"].every(name => result[name]?.length)
       ? "ComfyUI connected" : "ComfyUI · models missing";
