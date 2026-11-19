@@ -7,6 +7,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -16,6 +17,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, SecretStr
 from safetensors import SafetensorError, safe_open
+
+from .lora import clean_terms
 
 
 HOSTS = {"civitai.com", "civitai.red", "www.civitai.com", "www.civitai.red"}
@@ -128,8 +131,9 @@ def validate_weights(path):
 
 
 class Importer:
-    def __init__(self, directory):
+    def __init__(self, directory, storage=None):
         self.directory = directory
+        self.storage = storage
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(45, connect=15), follow_redirects=False)
         self.task = None
         self.job = None
@@ -212,7 +216,8 @@ class Importer:
         model_type = model.get("type") or ""
         choices = [
             {"id": item["id"], "name": item.get("name") or "Unnamed version",
-             "base": item.get("baseModel") or "", "files": file_options(item, requested_file, model_type)}
+             "base": item.get("baseModel") or "", "triggers": clean_terms(item.get("trainedWords")),
+             "files": file_options(item, requested_file, model_type)}
             for item in versions if isinstance(item, dict) and type(item.get("id")) is int
         ]
         if not any(version["files"] for version in choices):
@@ -220,7 +225,7 @@ class Importer:
         return {"host": host, "model": model.get("name") or "Civitai model",
                 "versions": [item for item in choices if item["files"]]}
 
-    async def install(self, host, version, selected, category, token):
+    async def install(self, host, version, selected, category, token, lora_metadata):
         target = self.directory / category / selected["name"]
         partial = None
         try:
@@ -251,6 +256,11 @@ class Importer:
                 await asyncio.to_thread(validate_weights, partial)
                 # A hard link publishes a fully verified file and fails if another file already exists.
                 await asyncio.to_thread(os.link, partial, target)
+            if lora_metadata is not None and self.storage is not None:
+                try:
+                    await asyncio.to_thread(self.storage.put, "lora_source", target.name, lora_metadata)
+                except (OSError, ValueError, sqlite3.Error):
+                    self.job["warning"] = "Imported the file. Its LoRA keywords could not be saved."
             self.job.update(state="complete")
         except FileExistsError:
             self.job.update(state="failed", error="A file with that name is already in this model folder.")
@@ -263,12 +273,12 @@ class Importer:
                 with suppress(OSError):
                     partial.unlink()
 
-    def start(self, host, version, selected, category, token):
+    def start(self, host, version, selected, category, token, lora_metadata=None):
         if self.task and not self.task.done():
             raise ImportErrorDetail("Wait for the current import to finish.")
         self.job = {"state": "downloading", "name": selected["name"], "category": category,
                     "received": 0, "total": selected["bytes"]}
-        self.task = asyncio.create_task(self.install(host, version, selected, category, token))
+        self.task = asyncio.create_task(self.install(host, version, selected, category, token, lora_metadata))
         return self.job
 
 
@@ -304,7 +314,12 @@ async def start_import(selection: Selection, request: Request):
                 continue
             for selected in version["files"]:
                 if selected["id"] == selection.file:
-                    return importer.start(inspected["host"], selection.version, selected, selection.category, token)
+                    metadata = None
+                    if selection.category == "loras":
+                        metadata = {"title": inspected["model"], "base": version["base"],
+                                    "triggers": version["triggers"]}
+                    return importer.start(inspected["host"], selection.version, selected,
+                                          selection.category, token, metadata)
         raise ImportErrorDetail("This file is no longer available for the selected model version.")
     except ImportErrorDetail as exc:
         raise HTTPException(422, str(exc)) from exc

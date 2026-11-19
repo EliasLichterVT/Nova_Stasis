@@ -89,6 +89,12 @@ In **Scene**, open **Turn a story into a prompt** and type or paste up to 12,000
 
 The translator works locally without an API key or additional model. Start a new paragraph or insert a line with three asterisks between scenes. Nova processes up to 12 scene suggestions, extracting short passages and prioritizing visible actions, settings and lighting with English-language rules. It omits quoted dialogue and places both characters according to the selected layout. Recheck the suggested prompt for details the extractor may miss. To generate a different moment, select another scene and apply its prompt.
 
+## LoRA trigger words and story suggestions
+
+Nova records published Civitai trigger words when you import a LoRA. For an existing LoRA, look up its Civitai link and select its version and file. Use **Grab LoRA trigger words** to load the words into the editor when Nova finds one installed file with the same name. Review and save them. In **LoRA keyword library**, you can also enter your own trigger words and descriptive story keywords, one per line.
+
+Story translation suggests installed LoRAs by matching the selected scene prompt against saved keywords, trigger words, and model names. LoRAs you already selected appear first. After editing the suggested prompt, click **Match prompt** to update the suggestions. Choose **Use on A** or **Use on B** to select the LoRA and add missing trigger words to the prompt. Story keywords help find the model and stay out of the generation prompt. Check the displayed Civitai base model against your checkpoint when that metadata is available. LoRA effects still apply to the full image, while the two reference adapters provide the regional conditioning.
+
 ## Privacy and safeguards
 
 - Both services bind to loopback in the documented setup. Nova has no accounts, telemetry, remote inference or public hosting mode. Its API checks the request host and protects write requests against cross-origin browser access. Use a trusted single-user machine or OS account.

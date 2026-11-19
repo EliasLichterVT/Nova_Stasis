@@ -58,7 +58,8 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
         self.requests.append((request.url.host, request.headers.get("authorization")))
         if request.url.path == "/api/v1/models/41":
             return httpx.Response(200, json={"name": "Example", "type": "LORA", "modelVersions": [
-                {"id": 75, "name": "v1", "baseModel": "SD 1.5", "files": [
+                {"id": 75, "name": "v1", "baseModel": "SD 1.5",
+                 "trainedWords": ["blue lantern", "BLUE LANTERN", "fog_style"], "files": [
                     {"id": 15, "name": "example.safetensors", "sizeKB": len(WEIGHTS) / 1024,
                      "hashes": {"SHA256": hashlib.sha256(WEIGHTS).hexdigest()}},
                     {"id": 16, "name": "example.ckpt"},
@@ -89,6 +90,9 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.wait())["state"], "complete")
         target = self.models / "loras" / "example.safetensors"
         self.assertEqual(target.read_bytes(), WEIGHTS)
+        metadata = app.state.db.get("lora_source", target.name)
+        self.assertEqual(metadata["triggers"], ["blue lantern", "fog_style"])
+        self.assertEqual(metadata["base"], "SD 1.5")
         self.assertIn(("civitai.red", "Bearer testing"), self.requests)
         self.assertIn((CDN, None), self.requests)
         self.assertEqual((await self.start()).status_code, 202)

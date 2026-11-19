@@ -36,6 +36,8 @@
             <label>Weights file<select name="file"></select></label>
           </div>
           <label>Install as<select name="category"></select></label>
+          <p id="civitai-lora-triggers" class="muted" hidden></p>
+          <button id="grab-lora-triggers" type="button" hidden>Grab LoRA trigger words</button>
           <button id="install-model" type="button">Download &amp; import</button>
         </div>
         <progress id="import-progress" aria-label="Model download progress" hidden></progress>
@@ -66,6 +68,13 @@
                 <label>Story scene <select id="story-scenes"></select></label>
                 <label>Suggested prompt <textarea id="story-preview" maxlength="3000" rows="4"></textarea></label>
                 <button id="apply-story" type="button">Use prompt</button>
+                <div class="lora-suggestions">
+                  <div class="section-title"><h3>LoRA suggestions</h3>
+                    <button id="refresh-lora-suggestions" type="button">Match prompt</button>
+                  </div>
+                  <p id="lora-suggestion-status" class="muted" role="status"></p>
+                  <div id="lora-suggestion-list"></div>
+                </div>
               </div>
               <p id="story-status" class="muted" role="status" hidden></p>
             </details>
@@ -96,6 +105,19 @@
               </div>
             </details>
           </section>
+          <details class="panel" id="lora-keyword-tool">
+            <summary>LoRA keyword library</summary>
+            <label>Installed LoRA<select id="keyword-lora"></select></label>
+            <label>Trigger words
+              <textarea id="lora-triggers" rows="2" maxlength="4840" placeholder="One trigger per line"></textarea>
+            </label>
+            <label>Story keywords
+              <textarea id="lora-keywords" rows="2" maxlength="4840" placeholder="One descriptive keyword or phrase per line"></textarea>
+            </label>
+            <button id="save-lora-keywords" type="button">Save keywords</button>
+            <button id="restore-lora-keywords" type="button">Restore imported triggers</button>
+            <p id="lora-keyword-status" class="muted" role="status"></p>
+          </details>
           <section class="panel">
             <h2>Saved settings</h2>
             <div class="library" id="presets"></div>

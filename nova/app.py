@@ -1,5 +1,6 @@
 """Local dashboard API and static web app."""
 
+import asyncio
 import os
 import re
 import secrets
@@ -19,6 +20,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .civitai import Importer, router as import_router
 from .comfy import Comfy, ComfyError
+from .lora import KeywordEdit, SuggestionRequest, catalog_entry, clean_terms, suggest_loras
 from .media import MAX_UPLOAD, image_path, png_bytes, read_upload, region_mask
 from .storage import Storage
 from .story import StoryRequest, translate_story
@@ -63,7 +65,7 @@ async def lifespan(app):
     app.state.db = Storage(directory / "nova.sqlite3")
     app.state.comfy = Comfy()
     models = os.environ.get("NOVA_MODELS_DIR")
-    app.state.importer = Importer(Path(models).expanduser().resolve() if models else None)
+    app.state.importer = Importer(Path(models).expanduser().resolve() if models else None, app.state.db)
     try:
         yield
     finally:
@@ -137,20 +139,42 @@ def uploaded_image(image_id: UUID):
     return FileResponse(require_image(image_id), media_type="image/png")
 
 
+async def node_choices(node, field):
+    response = await app.state.comfy.request(f"/object_info/{node}")
+    spec = response.json().get(node, {}).get("input", {}).get("required", {}).get(field, [])
+    return spec[0] if spec and isinstance(spec[0], list) else []
+
+
 @app.get("/api/models")
 async def model_choices():
-    import asyncio
-
-    async def node_choices(node, field):
-        response = await app.state.comfy.request(f"/object_info/{node}")
-        spec = response.json().get(node, {}).get("input", {}).get("required", {}).get(field, [])
-        return spec[0] if spec and isinstance(spec[0], list) else []
-
     choices = await asyncio.gather(*(node_choices(*entry) for entry in ASSET_CHOICES.values()))
     result = dict(zip(ASSET_CHOICES, choices))
     if os.environ.get("NOVA_STARTER_MODELS") == "1":
         result["starter_checkpoint"] = "v1-5-pruned-emaonly.safetensors"
     return result
+
+
+@app.get("/api/lora-keywords")
+async def lora_keywords():
+    installed = await node_choices(*ASSET_CHOICES["lora_a"])
+    return [catalog_entry(app.state.db, name) for name in installed]
+
+
+@app.put("/api/lora-keywords")
+async def save_lora_keywords(request: KeywordEdit):
+    installed = await node_choices(*ASSET_CHOICES["lora_a"])
+    if request.name not in installed:
+        raise HTTPException(404, "This LoRA is no longer listed by ComfyUI.")
+    app.state.db.put("lora_keywords", request.name, {
+        "triggers": clean_terms(request.triggers), "keywords": clean_terms(request.keywords),
+    })
+    return catalog_entry(app.state.db, request.name)
+
+
+@app.post("/api/lora-keywords/suggest")
+async def lora_suggestions(request: SuggestionRequest):
+    installed = await node_choices(*ASSET_CHOICES["lora_a"])
+    return suggest_loras(app.state.db, installed, request.prompt, request.selected)
 
 
 def check_prompt(prompt):

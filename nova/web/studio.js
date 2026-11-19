@@ -431,7 +431,7 @@ function displayImportJob(job) {
       importProgress.removeAttribute("value");
     }
   } else if (job?.state === "complete") {
-    importStatus.textContent = `Imported ${job.name}.`;
+    importStatus.textContent = job.warning || `Imported ${job.name}.`;
   } else if (job?.state === "failed") {
     importStatus.textContent = job.error;
   }
@@ -463,6 +463,7 @@ function selectedVersion() {
 function populateCategory() {
   const chosen = selectedVersion().files.find(file => String(file.id) === importFields.file.value);
   importFields.category.value = chosen.category || "";
+  showGrabbedTriggers(chosen);
 }
 
 function populateFiles() {
@@ -571,9 +572,13 @@ for (const input of [storyText, storyNameA, storyNameB, field("layout")]) {
 }
 storySelect.addEventListener("change", () => {
   storyPreview.value = storyPrompts[Number(storySelect.value)].prompt;
+  refreshStoryLoras();
 });
 storyPreview.addEventListener("input", () => {
   storyPrompts[Number(storySelect.value)].prompt = storyPreview.value;
+  suggestionRequest += 1;
+  suggestionList.replaceChildren();
+  suggestionStatus.textContent = "Select Match prompt to update suggestions.";
 });
 translateButton.addEventListener("click", async () => {
   if (!storyText.value.trim()) {
@@ -597,6 +602,7 @@ translateButton.addEventListener("click", async () => {
     storySelect.replaceChildren(...storyPrompts.map((scene, index) => new Option(scene.title, index)));
     storyPreview.value = storyPrompts[0].prompt;
     storyResults.hidden = false;
+    refreshStoryLoras();
     storyMessage(result.truncated ? "Showing the first 12 scenes. Translate the rest in a separate pass." : "");
   } catch (error) {
     storyMessage(error.message);
@@ -615,3 +621,181 @@ document.querySelector("#apply-story").addEventListener("click", () => {
   resetAttestation();
   storyMessage("Prompt applied. You can edit it in the Prompt field before generating.");
 });
+
+const keywordTool = document.querySelector("#lora-keyword-tool");
+const keywordSelect = document.querySelector("#keyword-lora");
+const triggersInput = document.querySelector("#lora-triggers");
+const keywordsInput = document.querySelector("#lora-keywords");
+const keywordStatus = document.querySelector("#lora-keyword-status");
+const saveKeywords = document.querySelector("#save-lora-keywords");
+const restoreKeywords = document.querySelector("#restore-lora-keywords");
+const civitaiTriggers = document.querySelector("#civitai-lora-triggers");
+const grabTriggers = document.querySelector("#grab-lora-triggers");
+const suggestionList = document.querySelector("#lora-suggestion-list");
+const suggestionStatus = document.querySelector("#lora-suggestion-status");
+let loraCatalog = [];
+let openingGrabbedKeywords = false;
+let suggestionRequest = 0;
+
+function loadKeywordFields() {
+  const entry = loraCatalog.find(item => item.name === keywordSelect.value);
+  triggersInput.value = entry?.triggers.join("\n") ?? "";
+  keywordsInput.value = entry?.keywords.join("\n") ?? "";
+  saveKeywords.disabled = !entry;
+  restoreKeywords.disabled = !entry?.source_triggers.length;
+}
+
+async function refreshKeywordLibrary() {
+  loraCatalog = await api("/lora-keywords");
+  const selected = keywordSelect.value;
+  keywordSelect.replaceChildren(new Option("Select a LoRA", ""),
+    ...loraCatalog.map(entry => new Option(entry.name, entry.name)));
+  if (loraCatalog.some(entry => entry.name === selected)) keywordSelect.value = selected;
+  loadKeywordFields();
+  keywordStatus.textContent = loraCatalog.length ? "" : "Install a LoRA to add its keywords.";
+}
+
+keywordTool.addEventListener("toggle", () => {
+  if (openingGrabbedKeywords) {
+    openingGrabbedKeywords = false;
+    return;
+  }
+  if (keywordTool.open) refreshKeywordLibrary().catch(error => { keywordStatus.textContent = error.message; });
+});
+keywordSelect.addEventListener("change", loadKeywordFields);
+restoreKeywords.addEventListener("click", () => {
+  const entry = loraCatalog.find(item => item.name === keywordSelect.value);
+  triggersInput.value = entry.source_triggers.join("\n");
+  keywordStatus.textContent = "Review the imported words, then save.";
+});
+saveKeywords.addEventListener("click", async () => {
+  const name = keywordSelect.value;
+  if (!name) return;
+  saveKeywords.disabled = true;
+  try {
+    const entry = await api("/lora-keywords", {method: "PUT", body: {
+      name, triggers: triggersInput.value.split("\n").map(text => text.trim()).filter(Boolean),
+      keywords: keywordsInput.value.split("\n").map(text => text.trim()).filter(Boolean),
+    }});
+    loraCatalog = loraCatalog.map(item => item.name === name ? entry : item);
+    if (keywordSelect.value === name) loadKeywordFields();
+    keywordStatus.textContent = "Keywords saved.";
+    if (!storyResults.hidden) refreshStoryLoras();
+  } catch (error) {
+    saveKeywords.disabled = false;
+    keywordStatus.textContent = error.message;
+  }
+});
+
+function showGrabbedTriggers(file) {
+  const words = selectedVersion().triggers ?? [];
+  const show = file.category === "loras" && words.length > 0;
+  civitaiTriggers.hidden = grabTriggers.hidden = !show;
+  civitaiTriggers.textContent = show ? `Trigger words · ${words.join(", ")}` : "";
+}
+
+grabTriggers.addEventListener("click", async () => {
+  const version = selectedVersion();
+  const file = version.files.find(item => String(item.id) === importFields.file.value);
+  grabTriggers.disabled = true;
+  try {
+    await refreshKeywordLibrary();
+    const matches = loraCatalog.filter(entry => entry.name.split(/[/\\]/).at(-1) === file.name);
+    if (matches.length !== 1) {
+      importStatus.textContent = "Import this LoRA first, or copy the shown trigger words to an installed LoRA in the keyword library.";
+      return;
+    }
+    if (!keywordTool.open) {
+      openingGrabbedKeywords = true;
+      keywordTool.open = true;
+    }
+    keywordSelect.value = matches[0].name;
+    loadKeywordFields();
+    triggersInput.value = version.triggers.join("\n");
+    keywordStatus.textContent = "Civitai words loaded. Review them and save.";
+    triggersInput.focus();
+  } catch (error) {
+    importStatus.textContent = error.message;
+  } finally {
+    grabTriggers.disabled = false;
+  }
+});
+
+function normalizedPrompt(text) {
+  return ` ${(text.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join(" ")} `;
+}
+
+function useStoryLora(entry, slot) {
+  const prompt = storyPreview.value.trim();
+  const normalized = normalizedPrompt(prompt);
+  const missing = entry.triggers.filter(term => {
+    const normalizedTerm = normalizedPrompt(term);
+    return !normalizedTerm.trim() || !normalized.includes(normalizedTerm);
+  });
+  const next = missing.length ? `${prompt}\n${missing.join(", ")}` : prompt;
+  if (next.length > storyPreview.maxLength) {
+    suggestionStatus.textContent = "Shorten the prompt before adding these trigger words.";
+    return;
+  }
+  const other = field(slot === "a" ? "lora_b" : "lora_a");
+  if (other.value !== entry.name) selectValue(field(`lora_${slot}`), entry.name);
+  storyPreview.value = next;
+  storyPrompts[Number(storySelect.value)].prompt = next;
+  document.querySelector("#apply-story").click();
+  refreshStoryLoras();
+}
+
+function showStoryLoras(entries) {
+  suggestionList.replaceChildren();
+  for (const entry of entries) {
+    const card = document.createElement("article");
+    const heading = document.createElement("strong");
+    heading.textContent = entry.title ? `${entry.title} · ${entry.name}` : entry.name;
+    const description = document.createElement("p");
+    description.className = "muted";
+    description.textContent = [
+      entry.base, entry.selected ? "Selected" : "",
+      entry.matches.length ? `Matches ${entry.matches.join(", ")}` : "",
+      entry.triggers.length ? `Triggers ${entry.triggers.join(", ")}` : "",
+    ].filter(Boolean).join(" · ");
+    card.append(heading, description);
+    for (const slot of ["a", "b"]) {
+      if (entry.selected && field(`lora_${slot}`).value !== entry.name) continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `Use on ${slot.toUpperCase()}`;
+      button.addEventListener("click", () => useStoryLora(entry, slot));
+      card.append(button);
+    }
+    suggestionList.append(card);
+  }
+}
+
+async function refreshStoryLoras() {
+  const prompt = storyPreview.value.trim();
+  const request = ++suggestionRequest;
+  suggestionList.replaceChildren();
+  if (!prompt) {
+    suggestionStatus.textContent = "Enter a scene prompt to match LoRAs.";
+    return;
+  }
+  suggestionStatus.textContent = "Matching installed LoRAs…";
+  try {
+    const entries = await api("/lora-keywords/suggest", {method: "POST", body: {
+      prompt, selected: [field("lora_a").value, field("lora_b").value].filter(Boolean),
+    }});
+    if (request !== suggestionRequest || storyResults.hidden) return;
+    showStoryLoras(entries);
+    suggestionStatus.textContent = entries.length ? "" : "No installed LoRAs match this prompt.";
+  } catch (error) {
+    if (request === suggestionRequest) suggestionStatus.textContent = error.message;
+  }
+}
+
+document.querySelector("#refresh-lora-suggestions").addEventListener("click", refreshStoryLoras);
+
+for (const slot of ["a", "b"]) {
+  field(`lora_${slot}`).addEventListener("change", () => {
+    if (!storyResults.hidden) refreshStoryLoras();
+  });
+}

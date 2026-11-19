@@ -132,3 +132,14 @@ summary { color: var(--muted); padding: 9px 0; font-size: 12px; }
 #story-tool { margin: 0 0 12px; }
 #story-results { margin-top: 12px; }
 #story-status { margin-top: 8px; font-size: 13px; }
+
+#lora-keyword-tool summary { padding: 0; color: #f3f1fa; font-size: 15px; font-weight: 700; }
+#lora-keyword-tool[open] summary { margin-bottom: 14px; }
+.lora-suggestions { margin-top: 14px; }
+.lora-suggestions h3 { margin: 0; }
+#lora-suggestion-list { display: grid; gap: 8px; }
+#lora-suggestion-list article { border: 1px solid var(--border); border-radius: 8px; padding: 9px; font-size: 13px; overflow-wrap: anywhere; }
+#lora-suggestion-list p { margin: 4px 0 8px; }
+#lora-suggestion-list button { margin-right: 5px; }
+#lora-keyword-status { margin-top: 8px; }
+#lora-keyword-status:empty, #lora-suggestion-status:empty { display: none; }
