@@ -17,6 +17,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .civitai import Importer, router as import_router
 from .comfy import Comfy, ComfyError
 from .media import MAX_UPLOAD, image_path, png_bytes, read_upload, region_mask
 from .storage import Storage
@@ -60,14 +61,18 @@ async def lifespan(app):
     app.state.assets.mkdir(mode=0o700, exist_ok=True)
     app.state.db = Storage(directory / "nova.sqlite3")
     app.state.comfy = Comfy()
+    models = os.environ.get("NOVA_MODELS_DIR")
+    app.state.importer = Importer(Path(models).expanduser().resolve() if models else None)
     try:
         yield
     finally:
+        await app.state.importer.close()
         await app.state.comfy.client.aclose()
 
 
 app = FastAPI(title="Nova Stasis", lifespan=lifespan, docs_url=None, redoc_url=None,
               openapi_url=None)
+app.include_router(import_router)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
 app.mount("/studio", StaticFiles(directory=WEB), name="studio")
 

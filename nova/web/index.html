@@ -17,6 +17,31 @@
       <h1>Generation studio</h1>
       <p>Build a scene around two character references.</p>
     </div>
+    <details class="panel model-import">
+      <summary>Import models from Civitai</summary>
+      <form id="model-import">
+        <div class="import-link">
+          <label>Civitai model or download link
+            <input name="url" type="url" required maxlength="2000" placeholder="https://civitai.com/models/…" spellcheck="false">
+          </label>
+          <button id="inspect-model" type="submit">Find files</button>
+        </div>
+        <label>API key (optional)
+          <input name="api_key" type="password" maxlength="500" autocomplete="off">
+        </label>
+        <div id="import-options" hidden>
+          <p id="import-model-name"></p>
+          <div class="field-grid">
+            <label>Model version<select name="version"></select></label>
+            <label>Weights file<select name="file"></select></label>
+          </div>
+          <label>Install as<select name="category"></select></label>
+          <button id="install-model" type="button">Download &amp; import</button>
+        </div>
+        <progress id="import-progress" aria-label="Model download progress" hidden></progress>
+        <p id="import-status" role="status"></p>
+      </form>
+    </details>
     <form id="studio">
       <div class="workspace">
         <div class="controls">

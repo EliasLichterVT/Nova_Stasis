@@ -117,3 +117,14 @@ summary { color: var(--muted); padding: 9px 0; font-size: 12px; }
   .connection { max-width: 46%; }
   .panel { padding: 12px; }
 }
+
+.model-import { margin-bottom: 16px; }
+.model-import summary { padding: 0; color: #f3f1fa; font-size: 15px; font-weight: 700; }
+.model-import[open] summary { margin-bottom: 14px; }
+.model-import form { max-width: 650px; }
+.import-link { display: flex; align-items: end; gap: 8px; margin-bottom: 10px; }
+.import-link label { flex: 1; min-width: 0; margin-bottom: 0; }
+#import-model-name { margin: 12px 0; font-weight: 650; }
+#import-progress { width: 100%; margin-top: 12px; accent-color: var(--accent); }
+#import-status { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; margin: 8px 0 0; }
+#import-status:empty { display: none; }

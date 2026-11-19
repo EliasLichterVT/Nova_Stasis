@@ -396,3 +396,150 @@ api("/generations").then(records => {
   }
   renderHistory();
 }).catch(error => notify(error.message, true)).finally(poll);
+
+const importForm = document.querySelector("#model-import");
+const importFields = importForm.elements;
+const inspectButton = document.querySelector("#inspect-model");
+const installButton = document.querySelector("#install-model");
+const importOptions = document.querySelector("#import-options");
+const importStatus = document.querySelector("#import-status");
+const importProgress = document.querySelector("#import-progress");
+let inspectedModel = null;
+let inspectedLink = null;
+let importBusy = false;
+let importsEnabled = false;
+let pollingImport = false;
+
+function importSize(bytes) {
+  const unit = bytes >= 1024 ** 3 ? "GiB" : "MiB";
+  return `${(bytes / (unit === "GiB" ? 1024 ** 3 : 1024 ** 2)).toFixed(1)} ${unit}`;
+}
+
+function displayImportJob(job) {
+  importBusy = job?.state === "downloading";
+  installButton.disabled = importBusy;
+  importProgress.hidden = !importBusy;
+  if (importBusy) {
+    const {received, total, name} = job;
+    importStatus.textContent = `Downloading ${name} · ${importSize(received)}`;
+    if (total) {
+      importStatus.textContent += ` / ${importSize(total)}`;
+      importProgress.max = total;
+      importProgress.value = received;
+    } else {
+      importProgress.removeAttribute("value");
+    }
+  } else if (job?.state === "complete") {
+    importStatus.textContent = `Imported ${job.name}.`;
+  } else if (job?.state === "failed") {
+    importStatus.textContent = job.error;
+  }
+}
+
+async function pollImport() {
+  if (pollingImport) return;
+  pollingImport = true;
+  try {
+    do {
+      const result = await api("/imports");
+      displayImportJob(result.job);
+      if (!importBusy && result.job?.state === "complete") await models();
+      if (importBusy) await new Promise(resolve => setTimeout(resolve, 1000));
+    } while (importBusy);
+  } catch (error) {
+    importStatus.textContent = error.message;
+    importProgress.hidden = true;
+    installButton.disabled = importBusy = false;
+  } finally {
+    pollingImport = false;
+  }
+}
+
+function selectedVersion() {
+  return inspectedModel.versions.find(version => String(version.id) === importFields.version.value);
+}
+
+function populateCategory() {
+  const chosen = selectedVersion().files.find(file => String(file.id) === importFields.file.value);
+  importFields.category.value = chosen.category || "";
+}
+
+function populateFiles() {
+  importFields.file.replaceChildren(...selectedVersion().files.map(file =>
+    new Option(file.bytes ? `${file.name} · ${importSize(file.bytes)}` : file.name, file.id),
+  ));
+  populateCategory();
+}
+
+importFields.version.addEventListener("change", populateFiles);
+importFields.file.addEventListener("change", populateCategory);
+importFields.url.addEventListener("input", () => {
+  if (importFields.url.value.trim() !== inspectedLink) importOptions.hidden = true;
+});
+importForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!importsEnabled || importBusy) return;
+  inspectButton.disabled = true;
+  importOptions.hidden = true;
+  importStatus.textContent = "Looking up files on Civitai…";
+  const url = importFields.url.value.trim();
+  try {
+    inspectedModel = await api("/imports/inspect", {
+      method: "POST", body: {url, api_key: importFields.api_key.value || null},
+    });
+    if (url !== importFields.url.value.trim()) {
+      importStatus.textContent = "Find files for the new link.";
+      return;
+    }
+    inspectedLink = url;
+    document.querySelector("#import-model-name").textContent = inspectedModel.model;
+    importFields.version.replaceChildren(...inspectedModel.versions.map(version =>
+      new Option(version.base ? `${version.name} · ${version.base}` : version.name, version.id),
+    ));
+    populateFiles();
+    importOptions.hidden = false;
+    importStatus.textContent = "Select a file and model folder.";
+  } catch (error) {
+    importStatus.textContent = error.message;
+  } finally {
+    inspectButton.disabled = false;
+  }
+});
+installButton.addEventListener("click", async () => {
+  if (importBusy || inspectedLink !== importFields.url.value.trim()) return;
+  if (!importFields.category.value) {
+    importStatus.textContent = "Choose a model folder.";
+    importFields.category.focus();
+    return;
+  }
+  installButton.disabled = importBusy = true;
+  try {
+    const job = await api("/imports", {method: "POST", body: {
+      url: inspectedLink, api_key: importFields.api_key.value || null,
+      version: Number(importFields.version.value), file: Number(importFields.file.value),
+      category: importFields.category.value,
+    }});
+    displayImportJob(job);
+    pollImport();
+  } catch (error) {
+    importStatus.textContent = error.message;
+    installButton.disabled = importBusy = false;
+  }
+});
+
+inspectButton.disabled = true;
+api("/imports").then(result => {
+  importsEnabled = result.enabled;
+  inspectButton.disabled = !importsEnabled;
+  if (!importsEnabled) {
+    importStatus.textContent = "Use the Nova launcher or set NOVA_MODELS_DIR to enable model imports.";
+    return;
+  }
+  importFields.category.replaceChildren(new Option("Choose model folder", ""),
+    ...Object.entries(result.categories).map(([key, label]) => new Option(label, key)));
+  if (result.job) {
+    importForm.closest("details").open = true;
+    displayImportJob(result.job);
+    if (importBusy) pollImport();
+  }
+}).catch(error => { importStatus.textContent = error.message; });

@@ -363,6 +363,7 @@ def launch(home, comfy, python, wheel, options):
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
         io_flags.extend([f"--{name}-directory", str(folder)])
     env = {**os.environ, "NOVA_COMFY_URL": comfy_url, "NOVA_STARTER_MODELS": "1"}
+    env["NOVA_MODELS_DIR"] = str(comfy / "models")
     env.setdefault("NOVA_DATA_DIR", str(home))
     say(f"Starting ComfyUI. Logs: {logs}")
     device_flags = comfy_device(python, wheel, options.cpu)

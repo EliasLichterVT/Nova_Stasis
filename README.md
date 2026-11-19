@@ -63,6 +63,16 @@ Select **Refresh** in Nova to reload the model lists. The lists reflect installe
 
 For a first run, use batch 1. Try 512 × 512 for SD 1.5 or 1024 × 768 for SDXL. A compatible GPU is the practical option. Actual VRAM use depends on the checkpoint, canvas size, batch size, ControlNet, and ComfyUI memory settings. If you run out of VRAM, reduce the batch or canvas size, then retry. CPU mode is possible on supported ComfyUI installations and can be much slower.
 
+## Import models from Civitai
+
+Open **Import models from Civitai** in the running studio. Paste an HTTPS model page or direct download link from **civitai.com** or **civitai.red**, then select **Find files**. Choose the version, weights file, and destination type, then select **Download & import**. Nova shows progress and refreshes its model lists after installation. Follow the model’s license and use weights compatible with your checkpoint family.
+
+The launcher configures the managed ComfyUI model directory automatically. For a manual install, set `NOVA_MODELS_DIR` in `.env` to the absolute path of the running ComfyUI installation’s `models` directory and restart Nova. Public downloads work without a key where Civitai permits them. If Civitai requires account access, enter your Civitai API key in the panel or set `NOVA_CIVITAI_API_KEY` in `.env`. The panel does not save the key. Nova sends it only to the selected Civitai site.
+
+Nova imports `.safetensors` checkpoints, LoRA/LyCORIS, VAEs, ControlNet, IP-Adapter, CLIP Vision, text encoders, embeddings, upscalers, and standalone diffusion models. It verifies the Civitai SHA-256 checksum and tensor container before publishing a file. Pickle-based checkpoints, executables, archives, workflows, and links outside Civitai are excluded. The dashboard selects checkpoints, LoRAs, ControlNet, IP-Adapter and CLIP Vision directly. Supporting weights such as standalone VAEs and upscalers are available in ComfyUI for workflows that use them.
+
+The importer runs one download at a time and keeps it running if you close or reload the tab while Nova remains running. It respects existing files, never overwrites a model, and installs on local filesystems that support hard links, such as NTFS, APFS and ext4. Keep the configured models folder outside Git or in the ignored `models/` directory.
+
 ## Generate and reuse scenes
 
 1. Upload one clear reference for each character. Nova accepts still PNG, JPEG and WebP up to 16 MiB and 20 megapixels. Tight crops with distinct features, clothing or silhouettes generally work best.
