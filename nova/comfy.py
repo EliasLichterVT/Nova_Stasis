@@ -17,6 +17,9 @@ class Comfy:
             raise RuntimeError("NOVA_COMFY_URL must be a loopback HTTP origin.")
         self.client = httpx.AsyncClient(base_url=url, timeout=30, trust_env=False)
 
+    async def close(self):
+        await self.client.aclose()
+
     async def request(self, path, **kwargs):
         try:
             response = await self.client.request("POST" if "json" in kwargs or "files" in kwargs

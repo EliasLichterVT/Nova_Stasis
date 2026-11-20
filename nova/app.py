@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import secrets
+import tempfile
 import unicodedata
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .anatomy import AnatomyPrompt, effective_negative
 from .civitai import Importer, router as import_router
 from .comfy import Comfy, ComfyError
+from .demo import DemoComfy, REFERENCES, STARTER_STORY, seed_references
 from .hardware import hardware_report
 from .lora import KeywordEdit, SuggestionRequest, catalog_entry, clean_terms, suggest_loras
 from .media import MAX_UPLOAD, image_path, png_bytes, read_upload, region_mask
@@ -60,19 +62,32 @@ class Preset(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app):
-    directory = Path(os.environ.get("NOVA_DATA_DIR", "~/.nova-stasis")).expanduser().resolve()
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    app.state.assets = directory / "assets"
-    app.state.assets.mkdir(mode=0o700, exist_ok=True)
-    app.state.db = Storage(directory / "nova.sqlite3")
-    app.state.comfy = Comfy()
-    models = os.environ.get("NOVA_MODELS_DIR")
-    app.state.importer = Importer(Path(models).expanduser().resolve() if models else None, app.state.db)
+    app.state.demo = os.environ.get("NOVA_BROWSER_DEMO") == "1"
+    temporary = tempfile.TemporaryDirectory(prefix="nova-browser-demo-") if app.state.demo else None
     try:
-        yield
+        directory = Path(temporary.name if temporary else os.environ.get(
+            "NOVA_DATA_DIR", "~/.nova-stasis",
+        )).expanduser().resolve()
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        app.state.assets = directory / "assets"
+        app.state.assets.mkdir(mode=0o700, exist_ok=True)
+        app.state.db = Storage(directory / "nova.sqlite3")
+        app.state.comfy = DemoComfy() if app.state.demo else Comfy()
+        models = None if app.state.demo else os.environ.get("NOVA_MODELS_DIR")
+        app.state.importer = Importer(Path(models).expanduser().resolve() if models else None, app.state.db)
+        try:
+            if app.state.demo:
+                seed_references(app.state.assets)
+                app.state.db.put("lora_source", "Lantern Study", {
+                    "title": "Lantern Study", "base": "SD 1.5 (demo)", "triggers": ["lantern_study"],
+                })
+            yield
+        finally:
+            await app.state.importer.close()
+            await app.state.comfy.close()
     finally:
-        await app.state.importer.close()
-        await app.state.comfy.client.aclose()
+        if temporary:
+            temporary.cleanup()
 
 
 app = FastAPI(title="Nova Stasis", lifespan=lifespan, docs_url=None, redoc_url=None,
@@ -147,10 +162,17 @@ async def node_choices(node, field):
     return spec[0] if spec and isinstance(spec[0], list) else []
 
 
+@app.get("/api/demo")
+def demo_info():
+    if not app.state.demo:
+        return {"enabled": False}
+    return {"enabled": True, "references": REFERENCES, "story": STARTER_STORY}
+
+
 @app.get("/api/hardware")
 async def hardware():
     response = await app.state.comfy.request("/system_stats")
-    return hardware_report(response.json(), starter=os.environ.get("NOVA_STARTER_MODELS") == "1")
+    return hardware_report(response.json(), starter=app.state.demo or os.environ.get("NOVA_STARTER_MODELS") == "1")
 
 
 @app.get("/api/models")

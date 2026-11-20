@@ -917,3 +917,21 @@ for (const name of ["width", "height", "steps", "batch"]) {
 scanHardwareButton.addEventListener("click", scanHardware);
 document.querySelector("#apply-hardware").addEventListener("click", applyHardwareDefaults);
 scanHardware();
+
+api("/demo").then(demo => {
+  if (!demo.enabled) return;
+  document.querySelector("#browser-demo").hidden = false;
+  document.querySelector("#load-demo-scene").addEventListener("click", () => {
+    for (const [index, slot] of ["a", "b"].entries()) assets.get(`ref_${slot}`).set(demo.references[index]);
+    field("mode").value = "text";
+    updateMode();
+    field("prompt").value = "Mara raises a lantern as Ivo crosses a stone bridge above a misty river.";
+    field("prompt").dispatchEvent(new Event("input"));
+    storyText.value = demo.story;
+    storyNameA.value = "Mara";
+    storyNameB.value = "Ivo";
+    storyText.dispatchEvent(new Event("input"));
+    resetAttestation();
+    form.scrollIntoView({block: "start"});
+  });
+}).catch(() => {});

@@ -14,6 +14,12 @@ The launcher installs a managed Python 3.12, PyTorch, ComfyUI, IP-Adapter Plus, 
 - **Storage:** Managed files live in `~/.nova-stasis` by default. ComfyUI keeps launcher-managed references and results in `private/input/` and `private/output/` inside that folder. Set `NOVA_LAUNCHER_HOME` before launch to use another absolute path outside the repository. Logs are in `logs/` in the same folder.
 - **Options:** Add `--setup-only` to install and exit, `--no-browser` to start without opening a tab, or `--cpu` to force CPU execution. If the usual ports are occupied, the launcher prints the URL it selected.
 
+## Browser test mode
+
+With the dashboard requirements installed, run `python -m nova.demo` and open `http://127.0.0.1:8765` in the browser on that machine or in the same Codex cloud desktop. Use `--port` to choose another port.
+
+Click **Load sample scene**, then try story translation, LoRA suggestions, the anatomy prompt preview, or **Generate scene**. The test mode uses fixture models and returns labeled preview images. Hardware capacity is simulated, and the Civitai installer is disabled. The session uses a temporary directory that is cleared when it stops.
+
 ## Hardware check in the browser
 
 Nova checks the local ComfyUI device when you open the studio and shows the operating system, logical CPU count, active device, and reported memory. It uses the active device, so a CPU-mode launch receives CPU guidance even on a PC with a discrete GPU. Available-memory figures reflect the moment of the scan. Nova uses more conservative settings for CPU and low-memory devices and recognizes the shared memory used by Apple Silicon.
