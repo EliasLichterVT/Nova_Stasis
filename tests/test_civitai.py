@@ -13,7 +13,7 @@ from zipfile import ZipFile
 import httpx
 
 from nova.app import app, lifespan
-from nova.civitai import ImportErrorDetail, link_target, model_filename
+from nova.civitai import ImportErrorDetail, is_delivery_target, link_target, model_filename
 
 
 CDN = "civitai-delivery-worker-prod.5ac0637cfd0766c97916cefa3764fbdf.r2.cloudflarestorage.com"
@@ -72,7 +72,7 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
         if request.url.path == "/api/download/models/75":
             self.assertEqual(request.url.params["fileId"], "15")
             return httpx.Response(307, headers={"Location": self.destination})
-        if request.url.host in {CDN, "b2.civitai.com"}:
+        if is_delivery_target(request.url.host, request.url.path):
             return httpx.Response(200, content=self.deliver)
         self.fail(f"Unexpected outgoing request to {request.url.host}")
 
@@ -118,6 +118,37 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.start()).status_code, 202)
         self.assertEqual((await self.wait())["state"], "complete")
         self.assertIn(("b2.civitai.com", None), self.requests)
+
+    async def test_current_and_historical_r2_hosts_receive_no_api_key(self):
+        account = "5ac0637cfd0766c97916cefa3764fbdf.r2.cloudflarestorage.com"
+        for url in (
+            f"https://civitai-prod-settled.{account}/signed",
+            f"https://civitai-delivery-worker-prod-2023-10-01.{account}/signed",
+            f"https://{account}/civitai-prod/signed",
+            "https://civitai-modelfiles.s3.us-west-004.backblazeb2.com/signed",
+        ):
+            self.destination = url
+            self.assertEqual((await self.start()).status_code, 202)
+            self.assertEqual((await self.wait())["state"], "complete", self.destination)
+            host = httpx.URL(url).host
+            self.assertIn((host, None), self.requests)
+            self.assertNotIn((host, "Bearer testing"), self.requests)
+            (self.models / "loras" / "example.safetensors").unlink()
+
+    async def test_sign_in_redirect_and_unrelated_bucket_are_not_followed(self):
+        for url, message in (
+            ("https://auth.civitai.com/login?token=secret", "requires sign-in"),
+            ("https://civitai.red/model-versions/75", "Early Access"),
+            ("https://civitai-prod-settled.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com/signed?token=secret",
+             "unrecognized download host"),
+        ):
+            self.destination = url
+            self.assertEqual((await self.start()).status_code, 202)
+            error = (await self.wait())["error"]
+            self.assertIn(message, error)
+            self.assertNotIn("secret", error)
+            if httpx.URL(url).host != "civitai.red":
+                self.assertNotIn(httpx.URL(url).host, [host for host, _ in self.requests])
 
     def prepare_zip(self, entries):
         data = io.BytesIO()

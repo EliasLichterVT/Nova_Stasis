@@ -24,7 +24,14 @@ from .lora import clean_terms
 
 
 HOSTS = {"civitai.com", "civitai.red", "www.civitai.com", "www.civitai.red"}
-DELIVERY = re.compile(r"civitai-delivery-worker-prod\.[a-f0-9]{32}\.r2\.cloudflarestorage\.com")
+CIVITAI_R2 = "5ac0637cfd0766c97916cefa3764fbdf.r2.cloudflarestorage.com"
+R2_BUCKETS = {
+    "civitai-prod", "civitai-prod-settled", "civitai-delivery-worker-prod",
+    "civitai-delivery-worker-prod-2023-05-01", "civitai-delivery-worker-prod-2023-10-01",
+}
+DELIVERY_HOSTS = {"b2.civitai.com", "blobs-b2.civitai.com", *(f"{bucket}.{CIVITAI_R2}" for bucket in R2_BUCKETS)}
+B2_HOST = re.compile(r"(?:civitai-modelfiles\.)?s3\.[a-z]{2}-[a-z]+-\d{3}\.backblazeb2\.com")
+ACCOUNT_HOSTS = HOSTS | {"auth.civitai.com"}
 MAX_BYTES = 32 * 1024**3
 CATEGORIES = {
     "checkpoints": "Checkpoint",
@@ -212,6 +219,17 @@ def extract_models(archive, directory, default_category):
                     target.unlink()
 
 
+def is_delivery_target(host, path):
+    bucket = path.split("/", 2)[1] if path.startswith("/") else ""
+    if host in DELIVERY_HOSTS:
+        return True
+    if host == CIVITAI_R2:
+        return bucket in R2_BUCKETS
+    if B2_HOST.fullmatch(host):
+        return host.startswith("civitai-modelfiles.") or bucket == "civitai-modelfiles"
+    return False
+
+
 class Importer:
     def __init__(self, directory, storage=None):
         self.directory = directory
@@ -237,15 +255,23 @@ class Importer:
                            and target.username is None and target.password is None)
             except ValueError as exc:
                 raise ImportErrorDetail("Civitai returned an invalid redirect.") from exc
-            is_api = target.hostname in HOSTS and target.path.startswith(
+            host = target.hostname or ""
+            if trusted and host in ACCOUNT_HOSTS:
+                if host == "auth.civitai.com" or target.path.startswith(("/login", "/api/auth/")):
+                    raise ImportErrorDetail("Civitai requires sign-in. Add your Civitai API key and try again.")
+                if delivery and target.path.startswith(("/models/", "/model-versions/")):
+                    raise ImportErrorDetail("Civitai returned the model page instead of a file. "
+                                            "Check download access and whether this version is in Early Access.")
+            is_api = host in HOSTS and target.path.startswith(
                 "/api/download/models/" if delivery else "/api/v1/",
             )
-            is_cdn = delivery and (
-                target.hostname == "b2.civitai.com" or DELIVERY.fullmatch(target.hostname or "")
-            )
+            is_cdn = delivery and is_delivery_target(host, target.path)
             if not trusted or not (is_api or is_cdn):
-                raise ImportErrorDetail("Civitai redirected to an unrecognized download host.")
-            headers = {"Accept-Encoding": "identity"}
+                safe_host = host if re.fullmatch(r"[a-z0-9.-]{1,253}", host) else "unknown host"
+                raise ImportErrorDetail(f"Civitai redirected to an unrecognized download host ({safe_host}).")
+            headers = {"Accept-Encoding": "identity", "Accept": "application/json"} if is_api else {
+                "Accept-Encoding": "identity",
+            }
             if is_api and token and target.hostname.removeprefix("www.") == original_host:
                 headers["Authorization"] = f"Bearer {token}"
             try:
