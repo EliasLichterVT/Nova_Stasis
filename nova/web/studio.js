@@ -19,7 +19,7 @@ const history = document.querySelector("#history");
 let uploadsInProgress = 0;
 let submitting = false;
 let selectedJob = null;
-let starterDefaultsApplied = false;
+let samplingEdited = false;
 
 async function api(path, {method = "GET", body} = {}) {
   const headers = {"X-Nova-Request": "1"};
@@ -224,6 +224,7 @@ function settings() {
 }
 
 function applySettings(saved) {
+  samplingEdited = true;
   for (const name of [...textFields, ...numberFields]) {
     if (modelFields.includes(name)) selectValue(field(name), saved[name]);
     else field(name).value = saved[name] ?? (name === "anatomy" ? "high" : "");
@@ -239,6 +240,7 @@ function applySettings(saved) {
   updateMode();
   field("prompt").dispatchEvent(new Event("input"));
   field("layout").dispatchEvent(new Event("input"));
+  updateHardwareWarning();
   resetAttestation();
   form.scrollIntoView({block: "start"});
 }
@@ -260,13 +262,6 @@ async function models() {
       select.replaceChildren(new Option(optional.has(name) ? "None" : "Select model", ""),
         ...available.map(model => new Option(model, model)));
       selectValue(select, prior || (!optional.has(name) && available.length === 1 ? available[0] : ""));
-    }
-    if (!starterDefaultsApplied && result.starter_checkpoint
-        && field("checkpoint").value === result.starter_checkpoint) {
-      for (const name of ["width", "height"]) {
-        if (field(name).value === field(name).defaultValue) field(name).value = "512";
-      }
-      starterDefaultsApplied = true;
     }
     label.textContent = ["checkpoint", "adapter", "vision"].every(name => result[name]?.length)
       ? "ComfyUI connected" : "ComfyUI · models missing";
@@ -835,3 +830,90 @@ anatomyButton.addEventListener("click", async () => {
     anatomyButton.disabled = false;
   }
 });
+
+const scanHardwareButton = document.querySelector("#scan-hardware");
+const hardwareStatus = document.querySelector("#hardware-status");
+const hardwareDetails = document.querySelector("#hardware-details");
+const hardwareSpecs = document.querySelector("#hardware-specs");
+const hardwareWarning = document.querySelector("#hardware-warning");
+let hardwareProfile = null;
+let hardwareDefaultsApplied = false;
+
+function hardwareMemory(total, free) {
+  if (total == null) return "Unavailable";
+  const gib = bytes => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  return free == null ? gib(total) : `${gib(total)} total · ${gib(free)} free at scan`;
+}
+
+function updateHardwareWarning() {
+  const limits = hardwareProfile?.limits;
+  const pixels = Number(field("width").value) * Number(field("height").value);
+  const batch = Number(field("batch").value);
+  const exceeds = limits && (pixels > limits.pixels || batch > limits.batch
+    || (Number(field("steps").value) > hardwareProfile.defaults.steps && hardwareProfile.device.type === "cpu"));
+  hardwareWarning.hidden = !exceeds;
+  hardwareWarning.textContent = exceeds
+    ? "Current settings exceed the suggested range. Rendering may be slower or run out of memory." : "";
+}
+
+function applyHardwareDefaults() {
+  if (!hardwareProfile) return;
+  for (const [name, value] of Object.entries(hardwareProfile.defaults)) field(name).value = value;
+  hardwareDefaultsApplied = true;
+  resetAttestation();
+  updateHardwareWarning();
+  hardwareStatus.textContent = `${hardwareProfile.label} · Recommended settings applied`;
+}
+
+async function scanHardware() {
+  scanHardwareButton.disabled = true;
+  hardwareStatus.textContent = "Checking the local ComfyUI device…";
+  try {
+    const report = await api("/hardware");
+    hardwareProfile = report;
+    const device = report.device;
+    const specs = [
+      ["Operating system", report.platform],
+      ["CPU", [report.cpu, report.logical_cpus && `${report.logical_cpus} logical cores`].filter(Boolean).join(" · ")],
+      ["Active device", [device.name, device.type.toUpperCase()].join(" · ")],
+      ["System RAM", hardwareMemory(report.ram, report.ram_free)],
+    ];
+    if (device.memory != null) specs.push(["GPU memory", hardwareMemory(device.memory, device.free)]);
+    hardwareSpecs.replaceChildren(...specs.flatMap(([name, value]) => {
+      const term = document.createElement("dt");
+      term.textContent = name;
+      const detail = document.createElement("dd");
+      detail.textContent = value || "Unavailable";
+      return [term, detail];
+    }));
+    const {width, height, steps, batch} = report.defaults;
+    const limits = report.limits;
+    document.querySelector("#hardware-budget").textContent =
+      `Start at ${width} × ${height}, ${steps} steps, batch ${batch}. Suggested range: up to ${limits.width} × ${limits.height} (or equivalent pixel count), batch ${limits.batch}.`;
+    document.querySelector("#hardware-notes").replaceChildren(...report.notes.map(text => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      return item;
+    }));
+    hardwareDetails.hidden = false;
+    hardwareStatus.textContent = report.label;
+    if (!samplingEdited && !hardwareDefaultsApplied) applyHardwareDefaults();
+    else updateHardwareWarning();
+  } catch {
+    hardwareProfile = null;
+    hardwareDetails.hidden = true;
+    hardwareStatus.textContent = "Hardware limits unavailable. Start ComfyUI, then scan again.";
+  } finally {
+    scanHardwareButton.disabled = false;
+  }
+}
+
+for (const name of ["width", "height", "steps", "batch"]) {
+  field(name).addEventListener("input", () => {
+    samplingEdited = true;
+    updateHardwareWarning();
+  });
+}
+scanHardwareButton.addEventListener("click", scanHardware);
+document.querySelector("#apply-hardware").addEventListener("click", applyHardwareDefaults);
+scanHardware();

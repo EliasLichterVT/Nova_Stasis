@@ -17,6 +17,20 @@
       <h1>Generation studio</h1>
       <p>Build a scene around two character references.</p>
     </div>
+    <section class="panel hardware-panel" aria-labelledby="hardware-heading">
+      <div class="section-title">
+        <h2 id="hardware-heading">Hardware and generation limits</h2>
+        <button id="scan-hardware" type="button">Scan again</button>
+      </div>
+      <p id="hardware-status" class="muted" role="status">Checking the local ComfyUI device…</p>
+      <div id="hardware-details" hidden>
+        <dl id="hardware-specs"></dl>
+        <p id="hardware-budget"></p>
+        <p id="hardware-warning" role="status" hidden></p>
+        <ul id="hardware-notes" class="muted"></ul>
+        <button id="apply-hardware" type="button">Use recommended settings</button>
+      </div>
+    </section>
     <details class="panel model-import">
       <summary>Import models from Civitai</summary>
       <form id="model-import">

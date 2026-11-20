@@ -21,6 +21,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .anatomy import AnatomyPrompt, effective_negative
 from .civitai import Importer, router as import_router
 from .comfy import Comfy, ComfyError
+from .hardware import hardware_report
 from .lora import KeywordEdit, SuggestionRequest, catalog_entry, clean_terms, suggest_loras
 from .media import MAX_UPLOAD, image_path, png_bytes, read_upload, region_mask
 from .storage import Storage
@@ -144,6 +145,12 @@ async def node_choices(node, field):
     response = await app.state.comfy.request(f"/object_info/{node}")
     spec = response.json().get(node, {}).get("input", {}).get("required", {}).get(field, [])
     return spec[0] if spec and isinstance(spec[0], list) else []
+
+
+@app.get("/api/hardware")
+async def hardware():
+    response = await app.state.comfy.request("/system_stats")
+    return hardware_report(response.json(), starter=os.environ.get("NOVA_STARTER_MODELS") == "1")
 
 
 @app.get("/api/models")

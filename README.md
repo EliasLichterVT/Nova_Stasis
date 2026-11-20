@@ -14,6 +14,12 @@ The launcher installs a managed Python 3.12, PyTorch, ComfyUI, IP-Adapter Plus, 
 - **Storage:** Managed files live in `~/.nova-stasis` by default. ComfyUI keeps launcher-managed references and results in `private/input/` and `private/output/` inside that folder. Set `NOVA_LAUNCHER_HOME` before launch to use another absolute path outside the repository. Logs are in `logs/` in the same folder.
 - **Options:** Add `--setup-only` to install and exit, `--no-browser` to start without opening a tab, or `--cpu` to force CPU execution. If the usual ports are occupied, the launcher prints the URL it selected.
 
+## Hardware check in the browser
+
+Nova checks the local ComfyUI device when you open the studio and shows the operating system, logical CPU count, active device, and reported memory. It uses the active device, so a CPU-mode launch receives CPU guidance even on a PC with a discrete GPU. Available-memory figures reflect the moment of the scan. Nova uses more conservative settings for CPU and low-memory devices and recognizes the shared memory used by Apple Silicon.
+
+Untouched width, height, steps, and batch fields start with the recommended settings. **Scan again** refreshes the hardware report, and **Use recommended settings** reapplies the defaults. Nova warns when settings exceed the suggested range. These estimates are advisory. A memory-intensive checkpoint, ControlNet, or other apps can lower what the machine can render.
+
 ## Manual installation
 
 ### Install the dashboard
@@ -115,6 +121,16 @@ Select **Preview combined negative prompt** to see the text ComfyUI will receive
 python -m unittest discover -s tests -v
 node --check nova/web/studio.js
 ```
+
+Run the optional Chromium hardware workflow test using a Python environment with the app requirements and Playwright installed:
+
+```sh
+python -m pip install playwright
+python -m playwright install chromium
+python tests/browser_hardware.py
+```
+
+This browser test uses simulated ComfyUI hardware reports to check startup defaults, warnings, rescan behavior, and the offline state.
 
 The tests exercise launcher download verification and reuse, graph wiring, independent regional conditioning, local API behavior, saved records, and an inpaint/pose batch with a simulated ComfyUI API. To check actual quality, use two authorized adult references on a GPU with a matched stack, hold the seed fixed, and change one strength at a time. Check whether the expected subject changes while the other remains recognizable.
 

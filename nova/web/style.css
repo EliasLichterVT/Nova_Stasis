@@ -147,3 +147,11 @@ summary { color: var(--muted); padding: 9px 0; font-size: 12px; }
 .anatomy-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-bottom: 10px; }
 .anatomy-controls label { flex: 1; min-width: 110px; margin: 0; }
 #anatomy-status { margin: 0 0 10px; font-size: 13px; }
+
+.hardware-panel { margin-bottom: 16px; }
+#hardware-specs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 14px; font-size: 13px; }
+#hardware-specs dt { color: var(--muted); }
+#hardware-specs dd { margin: 0; overflow-wrap: anywhere; }
+#hardware-budget, #hardware-warning, #hardware-notes { font-size: 13px; }
+#hardware-notes { padding-left: 18px; }
+#hardware-warning { color: #ffd093; }
