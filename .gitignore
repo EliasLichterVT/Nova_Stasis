@@ -12,3 +12,5 @@ ComfyUI/
 *.pt
 *.pth
 *.sqlite3*
+.civitai-api-key
+.civitai-key-*

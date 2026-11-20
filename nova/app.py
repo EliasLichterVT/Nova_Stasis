@@ -22,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .anatomy import AnatomyPrompt, effective_negative
 from .civitai import Importer, router as import_router
 from .comfy import Comfy, ComfyError
+from .credentials import CivitaiKeyStore
 from .demo import DemoComfy, REFERENCES, STARTER_STORY, seed_references
 from .hardware import hardware_report
 from .lora import KeywordEdit, SuggestionRequest, catalog_entry, clean_terms, suggest_loras
@@ -74,7 +75,11 @@ async def lifespan(app):
         app.state.db = Storage(directory / "nova.sqlite3")
         app.state.comfy = DemoComfy() if app.state.demo else Comfy()
         models = None if app.state.demo else os.environ.get("NOVA_MODELS_DIR")
-        app.state.importer = Importer(Path(models).expanduser().resolve() if models else None, app.state.db)
+        app.state.importer = Importer(
+            Path(models).expanduser().resolve() if models else None,
+            app.state.db,
+            CivitaiKeyStore(directory) if models else None,
+        )
         try:
             if app.state.demo:
                 seed_references(app.state.assets)

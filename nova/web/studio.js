@@ -554,11 +554,54 @@ installButton.addEventListener("click", async () => {
   }
 });
 
+const saveCivitaiKey = document.querySelector("#save-civitai-key");
+const forgetCivitaiKey = document.querySelector("#forget-civitai-key");
+const civitaiKeyStatus = document.querySelector("#civitai-key-status");
+
+function showKeyStatus(text) {
+  civitaiKeyStatus.textContent = text;
+  civitaiKeyStatus.hidden = !text;
+}
+
+function showSavedKey(saved) {
+  forgetCivitaiKey.hidden = !saved;
+  importFields.api_key.placeholder = saved ? "Saved key will be used" : "";
+  showKeyStatus(saved ? "Key saved on this computer." : "");
+}
+
+async function changeCivitaiKey(method) {
+  const action = method === "PUT";
+  const value = importFields.api_key.value.trim();
+  if (action && !value) {
+    showKeyStatus("Enter your Civitai API key first.");
+    importFields.api_key.focus();
+    return;
+  }
+  saveCivitaiKey.disabled = forgetCivitaiKey.disabled = true;
+  try {
+    const result = await api("/imports/key", {
+      method, body: action ? {api_key: value} : undefined,
+    });
+    importFields.api_key.value = "";
+    showSavedKey(result.key_saved);
+    if (!result.key_saved) showKeyStatus("Saved key removed.");
+  } catch (error) {
+    showKeyStatus(error.message);
+  } finally {
+    saveCivitaiKey.disabled = forgetCivitaiKey.disabled = false;
+  }
+}
+
+saveCivitaiKey.addEventListener("click", () => changeCivitaiKey("PUT"));
+forgetCivitaiKey.addEventListener("click", () => changeCivitaiKey("DELETE"));
+
 inspectButton.disabled = true;
 api("/imports").then(result => {
   importsEnabled = result.enabled;
   inspectButton.disabled = !importsEnabled;
   pasteCivitai.disabled = !importsEnabled;
+  saveCivitaiKey.disabled = !importsEnabled;
+  showSavedKey(result.key_saved);
   if (!importsEnabled) {
     importStatus.textContent = "Use the Nova launcher or set NOVA_MODELS_DIR to enable model imports.";
     return;

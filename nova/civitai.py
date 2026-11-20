@@ -29,7 +29,10 @@ R2_BUCKETS = {
     "civitai-prod", "civitai-prod-settled", "civitai-delivery-worker-prod",
     "civitai-delivery-worker-prod-2023-05-01", "civitai-delivery-worker-prod-2023-10-01",
 }
-DELIVERY_HOSTS = {"b2.civitai.com", "blobs-b2.civitai.com", *(f"{bucket}.{CIVITAI_R2}" for bucket in R2_BUCKETS)}
+DELIVERY_HOSTS = {
+    "b2.civitai.com", "b2-large.civitai.com", "blobs-b2.civitai.com",
+    *(f"{bucket}.{CIVITAI_R2}" for bucket in R2_BUCKETS),
+}
 B2_HOST = re.compile(r"(?:civitai-modelfiles\.)?s3\.[a-z]{2}-[a-z]+-\d{3}\.backblazeb2\.com")
 ACCOUNT_HOSTS = HOSTS | {"auth.civitai.com"}
 MAX_BYTES = 32 * 1024**3
@@ -61,7 +64,11 @@ class ImportErrorDetail(Exception):
 
 class Link(BaseModel):
     url: str = Field(min_length=1, max_length=2000)
-    api_key: SecretStr | None = Field(default=None, max_length=500, exclude=True)
+    api_key: SecretStr | None = Field(default=None, exclude=True)
+
+
+class KeyUpdate(BaseModel):
+    api_key: SecretStr = Field(exclude=True)
 
 
 class Selection(Link):
@@ -231,9 +238,10 @@ def is_delivery_target(host, path):
 
 
 class Importer:
-    def __init__(self, directory, storage=None):
+    def __init__(self, directory, storage=None, key_store=None):
         self.directory = directory
         self.storage = storage
+        self.key_store = key_store
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(45, connect=15), follow_redirects=False)
         self.task = None
         self.job = None
@@ -404,15 +412,53 @@ class Importer:
         return self.job
 
 
-def access(request, link):
+def configured_importer(request):
     importer = request.app.state.importer
     if importer.directory is None:
         raise HTTPException(409, "Set NOVA_MODELS_DIR to ComfyUI’s models directory or use the Nova launcher.")
-    token = link.api_key.get_secret_value().strip() if link.api_key else ""
-    token = token or os.environ.get("NOVA_CIVITAI_API_KEY", "")
-    if token and (not token.isascii() or not token.isprintable() or any(char.isspace() for char in token)):
+    return importer
+
+
+def validate_api_key(token):
+    if len(token) > 500 or (token and (
+        not token.isascii() or not token.isprintable() or any(char.isspace() for char in token)
+    )):
         raise HTTPException(422, "Enter a valid Civitai API key.")
-    return importer, token
+    return token
+
+
+def access(request, link):
+    importer = configured_importer(request)
+    token = link.api_key.get_secret_value().strip() if link.api_key else ""
+    if not token and importer.key_store is not None:
+        try:
+            token = importer.key_store.read()
+        except (OSError, UnicodeError, ImportError) as exc:
+            raise HTTPException(409, "Cannot read the saved Civitai key. Save it again or remove it.") from exc
+    return importer, validate_api_key(token or os.environ.get("NOVA_CIVITAI_API_KEY", "").strip())
+
+
+@router.put("/key")
+def save_key(update: KeyUpdate, request: Request):
+    store = configured_importer(request).key_store
+    key = validate_api_key(update.api_key.get_secret_value().strip())
+    if not key:
+        raise HTTPException(422, "Enter a Civitai API key before saving.")
+    try:
+        store.save(key)
+    except (OSError, ImportError) as exc:
+        raise HTTPException(500, "Nova could not save the Civitai key on this computer.") from exc
+    return {"key_saved": True}
+
+
+@router.delete("/key")
+def forget_key(request: Request):
+    store = configured_importer(request).key_store
+    try:
+        store.clear()
+    except OSError as exc:
+        raise HTTPException(500, "Nova could not remove the saved Civitai key.") from exc
+    return {"key_saved": False}
 
 
 @router.post("/inspect")
@@ -450,4 +496,5 @@ async def start_import(selection: Selection, request: Request):
 @router.get("")
 async def import_status(request: Request):
     importer = request.app.state.importer
-    return {"enabled": importer.directory is not None, "categories": CATEGORIES, "job": importer.job}
+    return {"enabled": importer.directory is not None, "categories": CATEGORIES, "job": importer.job,
+            "key_saved": bool(importer.key_store and importer.key_store.exists())}

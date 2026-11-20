@@ -52,9 +52,14 @@
           <button id="paste-civitai" type="button">Paste link</button>
           <button id="inspect-model" type="submit">Find files</button>
         </div>
-        <label>API key (optional)
-          <input name="api_key" type="password" maxlength="500" autocomplete="off">
-        </label>
+        <div class="import-link civitai-key-controls">
+          <label>API key (optional)
+            <input name="api_key" type="password" maxlength="500" autocomplete="off">
+          </label>
+          <button id="save-civitai-key" type="button" disabled>Save key</button>
+          <button id="forget-civitai-key" type="button" hidden>Forget key</button>
+        </div>
+        <p id="civitai-key-status" role="status" class="import-hint" hidden></p>
         <div id="import-options" hidden>
           <p id="import-model-name"></p>
           <div class="field-grid">

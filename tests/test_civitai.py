@@ -193,3 +193,37 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.start(category="../../outside")).status_code, 422)
         self.assertEqual((await self.start(file=16)).status_code, 422)
         self.assertIsNone(app.state.importer.job)
+
+    async def test_large_civitai_delivery_host_receives_no_api_key(self):
+        self.destination = "https://b2-large.civitai.com/signed"
+        self.assertEqual((await self.start()).status_code, 202)
+        self.assertEqual((await self.wait())["state"], "complete")
+        self.assertIn(("b2-large.civitai.com", None), self.requests)
+
+    async def test_local_key_is_reused_without_being_returned(self):
+        with patch.dict(os.environ, {"NOVA_CIVITAI_API_KEY": ""}):
+            saved = await self.browser.put("/api/imports/key", json={"api_key": "example-key"})
+            self.assertEqual(saved.json(), {"key_saved": True})
+            path = app.state.importer.key_store.path
+            self.assertTrue(path.is_file())
+            if os.name != "nt":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            # Recreate the store as a restarted process would.
+            from nova.credentials import CivitaiKeyStore
+
+            app.state.importer.key_store = CivitaiKeyStore(path.parent)
+            status = await self.browser.get("/api/imports")
+            self.assertTrue(status.json()["key_saved"])
+            self.assertNotIn("example-key", status.text)
+            response = await self.browser.post("/api/imports/inspect", json={"url": LINK})
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(("civitai.red", "Bearer example-key"), self.requests)
+            self.requests.clear()
+            response = await self.browser.post("/api/imports/inspect", json={
+                "url": LINK, "api_key": "override-key",
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(("civitai.red", "Bearer override-key"), self.requests)
+            removed = await self.browser.delete("/api/imports/key")
+            self.assertEqual(removed.json(), {"key_saved": False})
+            self.assertFalse(path.exists())
