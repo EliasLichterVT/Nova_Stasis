@@ -158,3 +158,10 @@ summary { color: var(--muted); padding: 9px 0; font-size: 12px; }
 
 .browser-demo { border-color: #6a5c96; margin-bottom: 16px; }
 .browser-demo p { margin: 0; color: var(--muted); font-size: 13px; }
+
+.browse-civitai { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.browse-civitai a { color: var(--accent); border: 1px solid var(--border); padding: 7px 10px; border-radius: 7px; font-size: 13px; text-decoration: none; }
+.browse-civitai a:hover { border-color: var(--accent); }
+.import-hint { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.import-link { flex-wrap: wrap; }
+.import-link label { min-width: 180px; }

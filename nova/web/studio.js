@@ -416,7 +416,13 @@ function displayImportJob(job) {
   importBusy = job?.state === "downloading";
   installButton.disabled = importBusy;
   importProgress.hidden = !importBusy;
-  if (importBusy) {
+  const results = document.querySelector("#import-results");
+  results.hidden = job?.state !== "complete";
+  results.replaceChildren();
+  if (importBusy && job.phase === "extracting") {
+    importStatus.textContent = "Verifying and extracting model files…";
+    importProgress.removeAttribute("value");
+  } else if (importBusy) {
     const {received, total, name} = job;
     importStatus.textContent = `Downloading ${name} · ${importSize(received)}`;
     if (total) {
@@ -427,7 +433,13 @@ function displayImportJob(job) {
       importProgress.removeAttribute("value");
     }
   } else if (job?.state === "complete") {
-    importStatus.textContent = job.warning || `Imported ${job.name}.`;
+    const skipped = job.skipped ? ` Skipped ${job.skipped} unsupported files.` : "";
+    importStatus.textContent = (job.warning || `Imported ${job.name}.`) + skipped;
+    for (const path of job.installed ?? []) {
+      const item = document.createElement("li");
+      item.textContent = path;
+      results.append(item);
+    }
   } else if (job?.state === "failed") {
     importStatus.textContent = job.error;
   }
@@ -459,6 +471,9 @@ function selectedVersion() {
 function populateCategory() {
   const chosen = selectedVersion().files.find(file => String(file.id) === importFields.file.value);
   importFields.category.value = chosen.category || "";
+  const archive = chosen.name.toLowerCase().endsWith(".zip");
+  document.querySelector("#import-category-label").textContent = archive ? "Default model folder" : "Install as";
+  document.querySelector("#import-archive-hint").hidden = !archive;
   showGrabbedTriggers(chosen);
 }
 
@@ -469,6 +484,20 @@ function populateFiles() {
   populateCategory();
 }
 
+const pasteCivitai = document.querySelector("#paste-civitai");
+pasteCivitai.disabled = true;
+pasteCivitai.addEventListener("click", async () => {
+  if (inspectButton.disabled || importBusy) return;
+  try {
+    const text = (await navigator.clipboard.readText()).trim();
+    importFields.url.value = text;
+    importFields.url.dispatchEvent(new Event("input"));
+    if (text) importForm.requestSubmit(inspectButton);
+  } catch {
+    importStatus.textContent = "Paste the Civitai link into the field to find files.";
+    importFields.url.focus();
+  }
+});
 importFields.version.addEventListener("change", populateFiles);
 importFields.file.addEventListener("change", populateCategory);
 importFields.url.addEventListener("input", () => {
@@ -529,6 +558,7 @@ inspectButton.disabled = true;
 api("/imports").then(result => {
   importsEnabled = result.enabled;
   inspectButton.disabled = !importsEnabled;
+  pasteCivitai.disabled = !importsEnabled;
   if (!importsEnabled) {
     importStatus.textContent = "Use the Nova launcher or set NOVA_MODELS_DIR to enable model imports.";
     return;

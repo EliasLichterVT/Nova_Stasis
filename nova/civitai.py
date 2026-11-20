@@ -8,9 +8,11 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
@@ -85,9 +87,9 @@ def link_target(url):
     raise ImportErrorDetail("Paste an HTTPS Civitai model page or model download link.")
 
 
-def model_filename(name):
+def model_filename(name, extensions=(".safetensors",)):
     if (not isinstance(name, str) or len(name.encode("utf-8")) > 220
-            or not name.lower().endswith(".safetensors") or name.lower() == ".safetensors"
+            or not name.lower().endswith(extensions) or name.lower() in extensions
             or re.search(r'[/\\<>:"|?*\x00-\x1f]', name)
             or name.startswith((".", " "))
             or re.match(r"(?i)(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:[ .]|$)", name)):
@@ -100,7 +102,7 @@ def file_options(version, requested_file, model_type):
     for entry in version.get("files") or []:
         if not isinstance(entry, dict):
             continue
-        name = model_filename(entry.get("name"))
+        name = model_filename(entry.get("name"), (".safetensors", ".zip"))
         file_id = entry.get("id")
         if not name or type(file_id) is not int or file_id <= 0:
             continue
@@ -128,6 +130,86 @@ def validate_weights(path):
                 raise ImportErrorDetail("The file contains no tensors.")
     except SafetensorError as exc:
         raise ImportErrorDetail("The downloaded file is not valid Safetensors weights.") from exc
+
+
+ARCHIVE_FOLDERS = {
+    **{name: name for name in CATEGORIES},
+    "checkpoint": "checkpoints", "lora": "loras", "lycoris": "loras", "unet": "diffusion_models",
+    "clip": "text_encoders", "controlnets": "controlnet", "ip-adapter": "ipadapter",
+    "upscalers": "upscale_models",
+}
+
+
+def target_file(directory, category, name):
+    target = directory / category / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if directory not in target.parent.resolve().parents:
+        raise ImportErrorDetail("The model folder must resolve inside the configured model directory.")
+    if target.exists() or target.is_symlink():
+        raise ImportErrorDetail(f"A file named {name} is already in the {category} folder.")
+    return target
+
+
+def extract_models(archive, directory, default_category):
+    installed = []
+    planned = {}
+    try:
+        with ZipFile(archive) as bundle, tempfile.TemporaryDirectory(dir=directory) as staging:
+            entries = bundle.infolist()
+            if len(entries) > 1000:
+                raise ImportErrorDetail("This ZIP exceeds the 1,000-entry limit.")
+            skipped = 0
+            total = 0
+            for entry in entries:
+                parts = entry.filename.split("/")
+                if (entry.filename.startswith("/") or "\\" in entry.filename
+                        or any(part in {".", ".."} or ":" in part for part in parts)
+                        or stat.S_ISLNK(entry.external_attr >> 16)):
+                    raise ImportErrorDetail("This ZIP contains an unsafe path or symbolic link.")
+                if entry.is_dir():
+                    continue
+                name = model_filename(parts[-1])
+                if not name or "__MACOSX" in parts:
+                    skipped += 1
+                    continue
+                category = next((ARCHIVE_FOLDERS[part.lower()] for part in reversed(parts[:-1])
+                                 if part.lower() in ARCHIVE_FOLDERS), default_category)
+                if name.lower().endswith(".vae.safetensors"):
+                    category = "vae"
+                target = target_file(directory, category, name)
+                key = (category, name.casefold())
+                if key in planned:
+                    raise ImportErrorDetail("This ZIP contains duplicate names in the same model folder.")
+                total += entry.file_size
+                planned[key] = (entry, target, category)
+            if not planned:
+                raise ImportErrorDetail("No supported Safetensors files were found in the ZIP.")
+            if total > min(MAX_BYTES, shutil.disk_usage(directory).free):
+                raise ImportErrorDetail("The extracted files exceed available space or the 32 GiB limit.")
+            verified = []
+            remaining = total
+            for index, (entry, target, category) in enumerate(planned.values()):
+                partial = Path(staging) / f"{index}.safetensors"
+                with bundle.open(entry) as source, partial.open("wb") as output:
+                    while chunk := source.read(2 * 1024**2):
+                        remaining -= len(chunk)
+                        if remaining < 0:
+                            raise ImportErrorDetail("The ZIP exceeded its advertised extraction size.")
+                        output.write(chunk)
+                validate_weights(partial)
+                verified.append((partial, target, category))
+            for partial, target, category in verified:
+                os.link(partial, target)
+                installed.append((target, category))
+            return installed, skipped
+    except (BadZipFile, NotImplementedError, RuntimeError) as exc:
+        raise ImportErrorDetail("This ZIP is damaged, encrypted, or uses unsupported compression.") from exc
+    finally:
+        # A failed package import leaves existing models and the model lists intact.
+        if len(installed) and len(installed) != len(planned):
+            for target, _ in installed:
+                with suppress(OSError):
+                    target.unlink()
 
 
 class Importer:
@@ -221,29 +303,27 @@ class Importer:
             for item in versions if isinstance(item, dict) and type(item.get("id")) is int
         ]
         if not any(version["files"] for version in choices):
-            raise ImportErrorDetail("No .safetensors weights with a SHA-256 checksum were found for this link.")
+            raise ImportErrorDetail("No Safetensors or ZIP files with a SHA-256 checksum were found for this link.")
         return {"host": host, "model": model.get("name") or "Civitai model",
                 "versions": [item for item in choices if item["files"]]}
 
     async def install(self, host, version, selected, category, token, lora_metadata):
-        target = self.directory / category / selected["name"]
+        archive = selected["name"].lower().endswith(".zip")
         partial = None
         try:
-            await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
-            if self.directory not in target.parent.resolve().parents:
-                raise ImportErrorDetail("The model folder must resolve inside the configured model directory.")
-            if target.exists() or target.is_symlink():
-                raise ImportErrorDetail("A file with that name is already in this model folder.")
+            self.directory.mkdir(parents=True, exist_ok=True)
+            target = None if archive else target_file(self.directory, category, selected["name"])
+            download_dir = self.directory if archive else target.parent
             url = f"https://{host}/api/download/models/{version}?fileId={selected['id']}"
             async with self.response(url, token, delivery=True) as response:
                 advertised = response.headers.get("content-length", "")
                 total = int(advertised) if advertised.isdecimal() else selected["bytes"]
                 if total is not None:
-                    if not 0 < total <= MAX_BYTES or total > shutil.disk_usage(target.parent).free:
+                    if not 0 < total <= MAX_BYTES or total > shutil.disk_usage(download_dir).free:
                         raise ImportErrorDetail("The file is too large or the model folder is out of space.")
                     self.job["total"] = total
                 digest = hashlib.sha256()
-                with tempfile.NamedTemporaryFile(dir=target.parent, suffix=".part", delete=False) as output:
+                with tempfile.NamedTemporaryFile(dir=download_dir, suffix=".part", delete=False) as output:
                     partial = Path(output.name)
                     async for chunk in response.aiter_bytes(2 * 1024**2):
                         self.job["received"] += len(chunk)
@@ -253,14 +333,30 @@ class Importer:
                         output.write(chunk)
                 if digest.hexdigest() != selected["sha256"]:
                     raise ImportErrorDetail("The downloaded file failed Civitai’s SHA-256 checksum.")
-                await asyncio.to_thread(validate_weights, partial)
-                # A hard link publishes a fully verified file and fails if another file already exists.
-                await asyncio.to_thread(os.link, partial, target)
+                if archive:
+                    self.job["phase"] = "extracting"
+                    extraction = asyncio.create_task(asyncio.to_thread(
+                        extract_models, partial, self.directory, category,
+                    ))
+                    try:
+                        installed, skipped = await asyncio.shield(extraction)
+                    except asyncio.CancelledError:
+                        with suppress(Exception):
+                            await extraction
+                        raise
+                else:
+                    await asyncio.to_thread(validate_weights, partial)
+                    await asyncio.to_thread(os.link, partial, target)
+                    installed, skipped = [(target, category)], 0
             if lora_metadata is not None and self.storage is not None:
                 try:
-                    await asyncio.to_thread(self.storage.put, "lora_source", target.name, lora_metadata)
+                    for path, folder in installed:
+                        if folder == "loras":
+                            await asyncio.to_thread(self.storage.put, "lora_source", path.name, lora_metadata)
                 except (OSError, ValueError, sqlite3.Error):
-                    self.job["warning"] = "Imported the file. Its LoRA keywords could not be saved."
+                    self.job["warning"] = "Imported the files. Their LoRA keywords could not be saved."
+            self.job["installed"] = [f"{folder}/{path.name}" for path, folder in installed]
+            self.job["skipped"] = skipped
             self.job.update(state="complete")
         except FileExistsError:
             self.job.update(state="failed", error="A file with that name is already in this model folder.")

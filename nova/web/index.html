@@ -40,10 +40,16 @@
     <details class="panel model-import">
       <summary>Import models from Civitai</summary>
       <form id="model-import">
+        <div class="browse-civitai">
+          <a href="https://civitai.com/models" target="_blank" rel="noopener noreferrer">Browse Civitai.com ↗</a>
+          <a href="https://civitai.red/models" target="_blank" rel="noopener noreferrer">Browse Civitai.red ↗</a>
+        </div>
+        <p class="import-hint">Copy a model page or download link from Civitai, then paste it here to import.</p>
         <div class="import-link">
           <label>Civitai model or download link
             <input name="url" type="url" required maxlength="2000" placeholder="https://civitai.com/models/…" spellcheck="false">
           </label>
+          <button id="paste-civitai" type="button">Paste link</button>
           <button id="inspect-model" type="submit">Find files</button>
         </div>
         <label>API key (optional)
@@ -53,15 +59,17 @@
           <p id="import-model-name"></p>
           <div class="field-grid">
             <label>Model version<select name="version"></select></label>
-            <label>Weights file<select name="file"></select></label>
+            <label>Model file or ZIP<select name="file"></select></label>
           </div>
-          <label>Install as<select name="category"></select></label>
+          <label><span id="import-category-label">Install as</span><select name="category"></select></label>
+          <p id="import-archive-hint" class="import-hint" hidden>Recognized folders inside the ZIP determine the model type. Files without a matching folder use your selection.</p>
           <p id="civitai-lora-triggers" class="muted" hidden></p>
           <button id="grab-lora-triggers" type="button" hidden>Grab LoRA trigger words</button>
           <button id="install-model" type="button">Download &amp; import</button>
         </div>
         <progress id="import-progress" aria-label="Model download progress" hidden></progress>
         <p id="import-status" role="status"></p>
+        <ul id="import-results" class="import-hint" hidden></ul>
       </form>
     </details>
     <form id="studio">

@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import io
 import json
 import os
 import struct
@@ -7,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZipFile
 
 import httpx
 
@@ -42,6 +44,8 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
         self.models = self.directory / "models"
         self.requests = []
         self.deliver = WEIGHTS
+        self.file_name = "example.safetensors"
+        self.expected = WEIGHTS
         self.destination = f"https://{CDN}/signed"
         self.enterContext(patch.dict(os.environ, {
             "NOVA_DATA_DIR": str(self.directory), "NOVA_MODELS_DIR": str(self.models),
@@ -60,8 +64,8 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"name": "Example", "type": "LORA", "modelVersions": [
                 {"id": 75, "name": "v1", "baseModel": "SD 1.5",
                  "trainedWords": ["blue lantern", "BLUE LANTERN", "fog_style"], "files": [
-                    {"id": 15, "name": "example.safetensors", "sizeKB": len(WEIGHTS) / 1024,
-                     "hashes": {"SHA256": hashlib.sha256(WEIGHTS).hexdigest()}},
+                    {"id": 15, "name": self.file_name, "sizeKB": len(self.expected) / 1024,
+                     "hashes": {"SHA256": hashlib.sha256(self.expected).hexdigest()}},
                     {"id": 16, "name": "example.ckpt"},
                 ]},
             ]})
@@ -114,6 +118,45 @@ class ImportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.start()).status_code, 202)
         self.assertEqual((await self.wait())["state"], "complete")
         self.assertIn(("b2.civitai.com", None), self.requests)
+
+    def prepare_zip(self, entries):
+        data = io.BytesIO()
+        with ZipFile(data, "w") as archive:
+            for path, content in entries.items():
+                archive.writestr(path, content)
+        self.file_name = "bundle.zip"
+        self.deliver = self.expected = data.getvalue()
+
+    async def test_verified_zip_routes_mixed_weights_and_skips_unrelated_files(self):
+        self.prepare_zip({
+            "models/checkpoints/scene.safetensors": WEIGHTS,
+            "models/loras/character.safetensors": WEIGHTS,
+            "color.vae.safetensors": WEIGHTS,
+            "fallback.safetensors": WEIGHTS,
+            "readme.txt": b"example",
+        })
+        lookup = await self.browser.post("/api/imports/inspect", json={"url": LINK})
+        self.assertEqual(lookup.json()["versions"][0]["files"][0]["name"], "bundle.zip")
+        self.assertEqual((await self.start(category="controlnet")).status_code, 202)
+        job = await self.wait()
+        self.assertEqual(job["state"], "complete", job)
+        self.assertEqual(job["skipped"], 1)
+        self.assertEqual(job["installed"], [
+            "checkpoints/scene.safetensors", "loras/character.safetensors",
+            "vae/color.vae.safetensors", "controlnet/fallback.safetensors",
+        ])
+        for path in job["installed"]:
+            self.assertEqual((self.models / path).read_bytes(), WEIGHTS)
+
+    async def test_zip_with_unsafe_paths_or_invalid_weights_publishes_nothing(self):
+        for path, contents, problem in (
+            ("../escape.safetensors", WEIGHTS, "unsafe"),
+            ("loras/broken.safetensors", b"invalid", "not valid"),
+        ):
+            self.prepare_zip({"loras/valid.safetensors": WEIGHTS, path: contents})
+            self.assertEqual((await self.start()).status_code, 202)
+            self.assertIn(problem, (await self.wait())["error"])
+            self.assertEqual(list(self.models.rglob("*.safetensors")), [])
 
     async def test_folder_and_file_selection_are_validated(self):
         self.assertEqual((await self.start(category="../../outside")).status_code, 422)
